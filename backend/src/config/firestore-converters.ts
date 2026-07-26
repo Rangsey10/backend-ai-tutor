@@ -1,4 +1,9 @@
-import { Timestamp, type FirestoreDataConverter, type QueryDocumentSnapshot, type DocumentData } from 'firebase-admin/firestore';
+import {
+  Timestamp,
+  type FirestoreDataConverter,
+  type QueryDocumentSnapshot,
+  type DocumentData,
+} from 'firebase-admin/firestore';
 import { MathematicalVerification } from '@models/mathematical-verifications.model';
 import { GradeLevel } from '@models/grade-levels.model';
 import { StudentAttempt } from '@models/student-attempts.model';
@@ -18,7 +23,7 @@ import { TutorTurn } from '@models/tutor-turns.model';
 import { Topic } from '@models/topics.model';
 import { User } from '@models/users.model';
 
-function createConverter<T extends Record<string, unknown>>(): FirestoreDataConverter<T> {
+function createConverter<T extends object>(): FirestoreDataConverter<T> {
   return {
     toFirestore(modelObject: T): DocumentData {
       return modelObject;

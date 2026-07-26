@@ -1,5 +1,3 @@
-import { Timestamp } from 'firebase-admin/firestore';
-
 export interface QuizOption {
   quiz_option_id: string;
   quiz_question_id: string;

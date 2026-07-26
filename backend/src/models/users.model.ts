@@ -1,5 +1,5 @@
 import { Timestamp } from 'firebase-admin/firestore';
-import { UserRole } from '@types/user-role';
+import { UserRole } from '../types/user-role';
 
 export type AccountStatus = 'active' | 'inactive' | 'suspended' | 'pending';
 

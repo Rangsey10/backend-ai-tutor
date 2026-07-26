@@ -1,5 +1,4 @@
 import { z } from 'zod';
-import { USER_ROLES } from '@types/user-role';
 
 const reportTypes = [
   'incorrect_answer',

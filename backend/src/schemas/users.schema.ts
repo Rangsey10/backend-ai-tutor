@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { USER_ROLES } from '@types/user-role';
+import { USER_ROLES } from '../types/user-role';
 
 const accountStatuses = ['active', 'inactive', 'suspended', 'pending'] as const;
 
