@@ -1,4 +1,4 @@
-# App Backend — Member 3 (Backend Application Lead)
+# App Backend — Rangsey (Backend Application Lead)
 
 Node.js + Express + TypeScript backend. Firebase integration, business logic,
 progress tracking, quiz APIs, and admin APIs.
