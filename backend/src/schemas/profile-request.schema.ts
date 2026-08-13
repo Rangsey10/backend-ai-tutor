@@ -31,6 +31,17 @@ export const updateProfileRequestSchema = z
   })
   .strict();
 
+export const updatePreferencesRequestSchema = z
+  .object({
+    grade_level_id: z.string().min(1).optional(),
+    explanation_level: z.enum(explanationLevels).optional(),
+    learning_goal: z.string().min(1).nullable().optional(),
+  })
+  .strict()
+  .refine((value) => Object.keys(value).length > 0, {
+    message: 'At least one preference field is required',
+  });
+
 export const addProfileSubjectRequestSchema = z
   .object({
     subject_id: z.string().min(1),
@@ -45,5 +56,6 @@ export const deleteProfileSubjectParamsSchema = z
 
 export type CreateProfileRequestInput = z.infer<typeof createProfileRequestSchema>;
 export type UpdateProfileRequestInput = z.infer<typeof updateProfileRequestSchema>;
+export type UpdatePreferencesRequestInput = z.infer<typeof updatePreferencesRequestSchema>;
 export type AddProfileSubjectRequestInput = z.infer<typeof addProfileSubjectRequestSchema>;
 export type DeleteProfileSubjectParamsInput = z.infer<typeof deleteProfileSubjectParamsSchema>;

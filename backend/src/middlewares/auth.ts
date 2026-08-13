@@ -1,5 +1,6 @@
 import { NextFunction, Request, Response } from 'express';
 import { getAuth } from '../config/firebase';
+import { env } from '../config/env';
 import { AppError } from '../utils/AppError';
 import { USER_ROLES, type UserRole } from '../types/user-role';
 
@@ -23,6 +24,16 @@ export async function authenticate(
 
   if (!token) {
     next(new AppError('Missing or invalid authorization header', 401));
+    return;
+  }
+
+  if (env.firebase.allowDemoAuthentication && token === 'demo-token') {
+    req.user = {
+      uid: 'demo-student',
+      email: 'student@example.com',
+      role: 'student',
+    };
+    next();
     return;
   }
 

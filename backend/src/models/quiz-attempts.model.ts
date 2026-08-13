@@ -4,6 +4,7 @@ export interface QuizAttempt {
   quiz_attempt_id: string;
   quiz_id: string;
   student_profile_id: string;
+  tutor_session_id?: string | null;
   score: number;
   correct_count: number;
   incorrect_count: number;
@@ -16,6 +17,7 @@ export interface QuizAttempt {
 export interface QuizAttemptCreateInput {
   quiz_id: string;
   student_profile_id: string;
+  tutor_session_id?: string | null;
   score?: number;
   correct_count?: number;
   incorrect_count?: number;
@@ -27,6 +29,7 @@ export interface QuizAttemptCreateInput {
 export interface QuizAttemptUpdateInput {
   quiz_id?: string;
   student_profile_id?: string;
+  tutor_session_id?: string | null;
   score?: number;
   correct_count?: number;
   incorrect_count?: number;

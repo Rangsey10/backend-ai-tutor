@@ -4,7 +4,8 @@ import {
   type FirestoreDataConverter,
   type QueryDocumentSnapshot,
 } from 'firebase-admin/firestore';
-import { getFirestore } from '../config/firebase';
+import { getFirestore, isFirebaseInitialized } from '../config/firebase';
+import { env } from '../config/env';
 import {
   gradeLevelConverter,
   studentProfileConverter,
@@ -19,6 +20,7 @@ import type { User } from '../models/users.model';
 import type {
   AddProfileSubjectRequestInput,
   CreateProfileRequestInput,
+  UpdatePreferencesRequestInput,
   UpdateProfileRequestInput,
 } from '../schemas/profile-request.schema';
 import { AppError } from '../utils/AppError';
@@ -34,6 +36,38 @@ export type UserProfileResponse = {
 };
 
 export type ProfileSubjectsResponse = ProfileSubjectResponse[];
+
+export type LearningPreferencesResponse = Pick<
+  StudentProfile,
+  'grade_level_id' | 'explanation_level' | 'learning_goal'
+>;
+
+/** A deliberately small, non-sensitive profile projection for the dashboard. */
+export type DashboardLearnerProfile = {
+  display_name: string | null;
+  grade_label: string | null;
+  subjects: { subject_id: string; subject_name: string }[];
+  learning_goal: string | null;
+};
+
+const DASHBOARD_PROFILE_TIMEOUT_MS = 1200;
+
+async function withDashboardProfileTimeout<T>(operation: Promise<T>): Promise<T> {
+  let timeoutId: NodeJS.Timeout | undefined;
+  try {
+    return await Promise.race([
+      operation,
+      new Promise<T>((_resolve, reject) => {
+        timeoutId = setTimeout(
+          () => reject(new Error('Firestore dashboard profile read timed out')),
+          DASHBOARD_PROFILE_TIMEOUT_MS
+        );
+      }),
+    ]);
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+  }
+}
 
 function db(): Firestore {
   return getFirestore();
@@ -203,6 +237,56 @@ export async function getCurrentUserProfile(firebaseUid: string): Promise<UserPr
   };
 }
 
+/**
+ * Dashboard loading must also work for a signed-in learner who has not completed
+ * onboarding.  Unlike the profile endpoint, this intentionally returns an empty
+ * projection instead of turning a new-user dashboard into a 404.
+ */
+export async function getDashboardLearnerProfile(
+  firebaseUid: string
+): Promise<DashboardLearnerProfile> {
+  // Keep local development responsive when Firebase is intentionally absent.
+  // Production does not enter this branch because local fallbacks are disabled.
+  if (!isFirebaseInitialized() && env.firebase.allowLocalFallback && !env.isProd) {
+    return { display_name: null, grade_label: null, subjects: [], learning_goal: null };
+  }
+
+  try {
+    return await withDashboardProfileTimeout(
+      (async () => {
+        const [userDocument, profileDocument] = await Promise.all([
+          getSingleByField('users', userConverter, 'firebase_uid', firebaseUid),
+          getProfileByUser(firebaseUid),
+        ]);
+        const profile = profileDocument?.data();
+        let gradeLabel: string | null = null;
+        if (profile?.grade_level_id) {
+          const gradeDocument = await getSingleByField(
+            'grade_levels',
+            gradeLevelConverter,
+            'grade_level_id',
+            profile.grade_level_id
+          );
+          gradeLabel = gradeDocument?.data().grade_name ?? null;
+        }
+        const selectedSubjects = profile ? await loadSubjects(profile.student_profile_id) : [];
+        return {
+          display_name: userDocument?.data().full_name?.trim() || null,
+          grade_label: gradeLabel,
+          subjects: selectedSubjects.map((item) => ({
+            subject_id: item.subject.subject_id,
+            subject_name: item.subject.subject_name,
+          })),
+          learning_goal: profile?.learning_goal ?? null,
+        };
+      })()
+    );
+  } catch {
+    // Progress remains available when a profile read is temporarily unavailable.
+    return { display_name: null, grade_label: null, subjects: [], learning_goal: null };
+  }
+}
+
 export async function createCurrentUserProfile(
   firebaseUid: string,
   payload: CreateProfileRequestInput
@@ -323,6 +407,31 @@ export async function updateCurrentUserProfile(
   await profileDocument.ref.update(updates);
 
   return getCurrentUserProfile(firebaseUid);
+}
+
+export async function getCurrentUserPreferences(
+  firebaseUid: string
+): Promise<LearningPreferencesResponse> {
+  const profileDocument = await requireProfileByUser(firebaseUid);
+  const profile = profileDocument.data();
+
+  return {
+    grade_level_id: profile.grade_level_id,
+    explanation_level: profile.explanation_level,
+    learning_goal: profile.learning_goal,
+  };
+}
+
+export async function updateCurrentUserPreferences(
+  firebaseUid: string,
+  payload: UpdatePreferencesRequestInput
+): Promise<LearningPreferencesResponse> {
+  const updatedProfile = await updateCurrentUserProfile(firebaseUid, payload);
+  return {
+    grade_level_id: updatedProfile.student_profile.grade_level_id,
+    explanation_level: updatedProfile.student_profile.explanation_level,
+    learning_goal: updatedProfile.student_profile.learning_goal,
+  };
 }
 
 export async function getCurrentUserSubjects(

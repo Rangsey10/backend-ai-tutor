@@ -2,9 +2,11 @@ import type { Request, Response } from 'express';
 import {
   addCurrentUserSubject,
   createCurrentUserProfile,
+  getCurrentUserPreferences,
   getCurrentUserProfile,
   getCurrentUserSubjects,
   removeCurrentUserSubject,
+  updateCurrentUserPreferences,
   updateCurrentUserProfile,
 } from '../services/profile.service';
 import { asyncHandler } from '../utils/asyncHandler';
@@ -23,6 +25,16 @@ export const createProfile = asyncHandler(async (req: Request, res: Response) =>
 export const updateProfile = asyncHandler(async (req: Request, res: Response) => {
   const profile = await updateCurrentUserProfile(req.user!.uid, req.body);
   sendSuccess(res, profile, 'Profile updated successfully');
+});
+
+export const getPreferences = asyncHandler(async (req: Request, res: Response) => {
+  const preferences = await getCurrentUserPreferences(req.user!.uid);
+  sendSuccess(res, preferences, 'Learning preferences retrieved successfully');
+});
+
+export const updatePreferences = asyncHandler(async (req: Request, res: Response) => {
+  const preferences = await updateCurrentUserPreferences(req.user!.uid, req.body);
+  sendSuccess(res, preferences, 'Learning preferences saved successfully');
 });
 
 export const getProfileSubjects = asyncHandler(async (req: Request, res: Response) => {

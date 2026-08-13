@@ -79,6 +79,8 @@ All endpoints under `/api/v1/profile` are protected by authentication (`authenti
 | `GET`    | `/api/v1/profile`                     | Get current user's profile, merged with user info and selected subjects     |
 | `POST`   | `/api/v1/profile`                     | Create profile (onboarding) with grade level, preferences, and subjects     |
 | `PATCH`  | `/api/v1/profile`                     | Update learning preferences (explanation_level, learning_goal, grade_level) |
+| `GET`    | `/api/v1/profile/preferences`         | Read compact learning preferences for app state                             |
+| `PUT`    | `/api/v1/profile/preferences`         | Save compact learning preferences                                           |
 | `GET`    | `/api/v1/profile/subjects`            | Get student's selected subjects with metadata                               |
 | `POST`   | `/api/v1/profile/subjects`            | Add a new subject selection                                                 |
 | `DELETE` | `/api/v1/profile/subjects/:subjectId` | Remove a subject selection (soft delete)                                    |
@@ -90,6 +92,41 @@ All endpoints under `/api/v1/profile` are protected by authentication (`authenti
 - PATCH `/api/v1/profile` rejects backend-managed fields (current_streak, longest_streak, total_learning_time).
 - POST `/api/v1/profile/subjects` returns 409 Conflict if subject already selected.
 - DELETE `/api/v1/profile/subjects/:subjectId` soft-deletes the student_subjects record (status → 'inactive').
+
+### Student Catalog APIs
+
+All endpoints under `/api/v1/catalog` are protected by Firebase auth and require the `student` role.
+
+| Method | Endpoint                 | Description                                      |
+| ------ | ------------------------ | ------------------------------------------------ |
+| `GET`  | `/api/v1/catalog/grades` | List supported Grade 10, Grade 11, Grade 12      |
+| `GET`  | `/api/v1/catalog/subjects` | List supported student subjects                |
+| `GET`  | `/api/v1/catalog/topics` | List topics, optionally filtered by grade/subject |
+
+### API Response Shape
+
+Successful responses use:
+
+```json
+{
+  "success": true,
+  "message": "Human-readable status",
+  "data": {}
+}
+```
+
+Errors use:
+
+```json
+{
+  "success": false,
+  "message": "Human-readable error",
+  "error": {
+    "code": "VALIDATION_ERROR",
+    "details": [{ "path": "field", "message": "Issue" }]
+  }
+}
+```
 
 ## Firebase setup (needed before Task 3: Firebase Auth integration)
 
@@ -106,7 +143,7 @@ All endpoints under `/api/v1/profile` are protected by authentication (`authenti
 - [x] Integrate Firebase Authentication and role authorization
 - [x] Design and implement Firestore schemas
 - [x] User profile & learning preference APIs
-- [ ] Curriculum/grade/subject/topic APIs
+- [x] Curriculum/grade/subject/topic APIs
 - [ ] Quiz storage & submission APIs
 - [ ] Quiz scoring & answer review logic
 - [ ] Lesson history & progress tracking APIs

@@ -24,6 +24,10 @@ export function errorHandler(err: Error, req: Request, res: Response, _next: Nex
   res.status(statusCode).json({
     success: false,
     message,
+    error: {
+      code: err instanceof AppError ? err.code : 'INTERNAL_SERVER_ERROR',
+      ...(err instanceof AppError && err.details !== undefined && { details: err.details }),
+    },
     ...(env.isDev && { stack: err.stack }),
   });
 }

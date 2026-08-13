@@ -1,3 +1,4 @@
+import './types/express';
 import { createApp } from './app';
 import { env } from './config/env';
 import { initFirebase } from './config/firebase';

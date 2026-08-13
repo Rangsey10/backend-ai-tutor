@@ -6,8 +6,11 @@ type ValidationTarget = 'body' | 'params' | 'query';
 
 type ValidationSchemas = Partial<Record<ValidationTarget, ZodTypeAny>>;
 
-function formatZodError(error: ZodError): string {
-  return error.issues.map((issue) => issue.message).join('; ');
+function formatZodError(error: ZodError): Array<{ path: string; message: string }> {
+  return error.issues.map((issue) => ({
+    path: issue.path.join('.'),
+    message: issue.message,
+  }));
 }
 
 export function validate(schemas: ValidationSchemas): RequestHandler {
@@ -18,7 +21,8 @@ export function validate(schemas: ValidationSchemas): RequestHandler {
       const parsed = schema.safeParse(req[target]);
 
       if (!parsed.success) {
-        next(new AppError(formatZodError(parsed.error), 400));
+        const details = formatZodError(parsed.error);
+        next(new AppError('Request validation failed', 400, true, 'VALIDATION_ERROR', details));
         return;
       }
 

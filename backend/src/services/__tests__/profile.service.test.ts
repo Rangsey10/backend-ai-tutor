@@ -1,5 +1,5 @@
 import { Timestamp } from 'firebase-admin/firestore';
-import { getFirestore } from '../../config/firebase';
+import { getFirestore, isFirebaseInitialized } from '../../config/firebase';
 import {
   addCurrentUserSubject,
   createCurrentUserProfile,
@@ -8,9 +8,13 @@ import {
 
 jest.mock('../../config/firebase', () => ({
   getFirestore: jest.fn(),
+  isFirebaseInitialized: jest.fn(() => false),
 }));
 
 const mockedGetFirestore = getFirestore as jest.MockedFunction<typeof getFirestore>;
+const mockedIsFirebaseInitialized = isFirebaseInitialized as jest.MockedFunction<
+  typeof isFirebaseInitialized
+>;
 
 function snapshotFromDocs<T extends Record<string, unknown>>(
   docs: Array<{ data: () => T; ref: { update: jest.Mock; set?: jest.Mock } }>
@@ -24,6 +28,7 @@ function snapshotFromDocs<T extends Record<string, unknown>>(
 describe('profile.service', () => {
   beforeEach(() => {
     mockedGetFirestore.mockReset();
+    mockedIsFirebaseInitialized.mockReturnValue(false);
   });
 
   it('rejects backend-managed fields on PATCH', async () => {
