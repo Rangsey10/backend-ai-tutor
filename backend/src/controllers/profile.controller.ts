@@ -3,11 +3,13 @@ import {
   addCurrentUserSubject,
   createCurrentUserProfile,
   getCurrentUserOnboarding,
+  getCurrentUserPreferenceSettings,
   getCurrentUserPreferences,
   getCurrentUserProfile,
   getCurrentUserSubjects,
   removeCurrentUserSubject,
   updateCurrentUserOnboarding,
+  updateCurrentUserPreferences,
   updateCurrentUserProfile,
   upsertCurrentUserPreferences,
 } from '../services/profile.service';
@@ -35,7 +37,7 @@ export const getPreferences = asyncHandler(async (req: Request, res: Response) =
 });
 
 export const updatePreferences = asyncHandler(async (req: Request, res: Response) => {
-  const preferences = await upsertCurrentUserPreferences(req.user!.uid, req.body);
+  const preferences = await updateCurrentUserPreferences(req.user!.uid, req.body);
   sendSuccess(res, preferences, 'Learning preferences saved successfully');
 });
 
@@ -62,4 +64,14 @@ export const getOnboardingState = asyncHandler(async (req: Request, res: Respons
 export const updateOnboardingState = asyncHandler(async (req: Request, res: Response) => {
   const onboarding = await updateCurrentUserOnboarding(req.user!.uid, req.body);
   sendSuccess(res, onboarding, 'Onboarding state updated successfully');
+});
+
+export const getProfilePreferences = asyncHandler(async (req: Request, res: Response) => {
+  const preferences = await getCurrentUserPreferenceSettings(req.user!.uid);
+  sendSuccess(res, preferences, 'Detailed learning preferences retrieved successfully');
+});
+
+export const upsertProfilePreferences = asyncHandler(async (req: Request, res: Response) => {
+  const preferences = await upsertCurrentUserPreferences(req.user!.uid, req.body);
+  sendSuccess(res, preferences, 'Detailed learning preferences saved successfully');
 });

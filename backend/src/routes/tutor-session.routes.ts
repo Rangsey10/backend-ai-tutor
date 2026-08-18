@@ -17,7 +17,7 @@ import {
 const router = Router();
 
 router.use(authenticate);
-router.use(authorize('student', 'tutor', 'teacher', 'admin', 'administrator'));
+router.use(authorize('student'));
 
 router.post('/', validate({ body: createTutorSessionRequestSchema }), createSession);
 router.post(

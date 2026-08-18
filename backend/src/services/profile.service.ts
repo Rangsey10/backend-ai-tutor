@@ -49,6 +49,10 @@ export type OnboardingStateResponse = {
 };
 
 export type StudentPreferenceResponse = StudentPreference;
+export type LearningPreferencesResponse = Pick<
+  StudentProfile,
+  'grade_level_id' | 'explanation_level' | 'learning_goal'
+>;
 
 /** A deliberately small, non-sensitive profile projection for the dashboard. */
 export type DashboardLearnerProfile = {
@@ -576,6 +580,31 @@ export async function updateCurrentUserOnboarding(
 }
 
 export async function getCurrentUserPreferences(
+  firebaseUid: string
+): Promise<LearningPreferencesResponse> {
+  const profileDocument = await requireProfileByUser(firebaseUid);
+  const profile = profileDocument.data();
+
+  return {
+    grade_level_id: profile.grade_level_id,
+    explanation_level: profile.explanation_level,
+    learning_goal: profile.learning_goal,
+  };
+}
+
+export async function updateCurrentUserPreferences(
+  firebaseUid: string,
+  payload: Pick<LearningPreferencesResponse, 'grade_level_id' | 'explanation_level' | 'learning_goal'>
+): Promise<LearningPreferencesResponse> {
+  const profile = await updateCurrentUserProfile(firebaseUid, payload);
+  return {
+    grade_level_id: profile.student_profile.grade_level_id,
+    explanation_level: profile.student_profile.explanation_level,
+    learning_goal: profile.student_profile.learning_goal,
+  };
+}
+
+export async function getCurrentUserPreferenceSettings(
   firebaseUid: string
 ): Promise<StudentPreferenceResponse> {
   const profile = (await requireProfileByUser(firebaseUid)).data();

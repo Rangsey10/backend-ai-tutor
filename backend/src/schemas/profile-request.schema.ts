@@ -9,7 +9,7 @@ export const createProfileRequestSchema = z
     avatar_url: z.string().url().nullable().optional(),
     explanation_level: z.enum(explanationLevels),
     learning_goal: z.string().min(1).nullable(),
-    learning_goals: z.array(z.string().min(1)).default([]),
+    learning_goals: z.array(z.string().min(1)).optional(),
     subject_ids: z.array(z.string().min(1)).min(1),
   })
   .strict()
@@ -37,6 +37,17 @@ export const updateProfileRequestSchema = z
   })
   .strict();
 
+export const updatePreferencesRequestSchema = z
+  .object({
+    grade_level_id: z.string().min(1).optional(),
+    explanation_level: z.enum(explanationLevels).optional(),
+    learning_goal: z.string().min(1).nullable().optional(),
+  })
+  .strict()
+  .refine((value) => Object.keys(value).length > 0, {
+    message: 'At least one preference field is required',
+  });
+
 export const addProfileSubjectRequestSchema = z
   .object({
     subject_id: z.string().min(1),
@@ -51,5 +62,6 @@ export const deleteProfileSubjectParamsSchema = z
 
 export type CreateProfileRequestInput = z.input<typeof createProfileRequestSchema>;
 export type UpdateProfileRequestInput = z.input<typeof updateProfileRequestSchema>;
+export type UpdatePreferencesRequestInput = z.input<typeof updatePreferencesRequestSchema>;
 export type AddProfileSubjectRequestInput = z.input<typeof addProfileSubjectRequestSchema>;
 export type DeleteProfileSubjectParamsInput = z.input<typeof deleteProfileSubjectParamsSchema>;

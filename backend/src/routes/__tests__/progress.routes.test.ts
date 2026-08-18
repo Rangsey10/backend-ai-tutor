@@ -107,7 +107,7 @@ describe('progress routes', () => {
       total_interactions: 42,
     });
 
-    const response = await request(app).get('/api/v1/progress/dashboard');
+    const response = await request(app).get('/api/v1/progress/dashboard-v2');
 
     expect(response.status).toBe(200);
     expect(mockedProgressService.getProgressDashboard).toHaveBeenCalledWith('firebase-user-1');
