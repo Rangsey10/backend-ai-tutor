@@ -5,8 +5,10 @@ declare global {
     interface Request {
       user?: {
         uid: string;
+        userId?: string;
         email?: string;
         role?: UserRole;
+        normalizedRole?: 'student' | 'tutor' | 'admin';
       };
     }
   }

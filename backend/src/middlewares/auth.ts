@@ -1,8 +1,11 @@
 import { NextFunction, Request, Response } from 'express';
 import { getAuth } from '../config/firebase';
 import { env } from '../config/env';
+import { getFirestore } from '../config/firebase';
+import { userConverter } from '../config/firestore-converters';
 import { AppError } from '../utils/AppError';
-import { USER_ROLES, type UserRole } from '../types/user-role';
+import { USER_ROLES, normalizeUserRole, type UserRole } from '../types/user-role';
+import { verifyAccessToken } from '../utils/auth-tokens';
 
 function isUserRole(value: unknown): value is UserRole {
   return typeof value === 'string' && USER_ROLES.includes(value as UserRole);
@@ -38,14 +41,38 @@ export async function authenticate(
   }
 
   try {
-    const decodedToken = await getAuth().verifyIdToken(token);
+    const claims = verifyAccessToken(token);
+    const userDocument = await getFirestore().collection('users').withConverter(userConverter).doc(claims.sub).get();
+
+    if (!userDocument.exists) {
+      next(new AppError('User account not found for access token', 401));
+      return;
+    }
+
+    const user = userDocument.data()!;
     req.user = {
-      uid: decodedToken.uid,
-      email: typeof decodedToken.email === 'string' ? decodedToken.email : undefined,
-      role: isUserRole(decodedToken.role) ? decodedToken.role : 'student',
+      uid: user.firebase_uid,
+      userId: user.user_id,
+      email: user.email,
+      role: user.role,
+      normalizedRole: normalizeUserRole(user.role),
     };
     next();
   } catch {
-    next(new AppError('Invalid or expired authentication token', 401));
+    try {
+      const decodedToken = await getAuth().verifyIdToken(token);
+      const role = isUserRole(decodedToken.role) ? decodedToken.role : 'student';
+
+      req.user = {
+        uid: decodedToken.uid,
+        userId: decodedToken.uid,
+        email: typeof decodedToken.email === 'string' ? decodedToken.email : undefined,
+        role,
+        normalizedRole: normalizeUserRole(role),
+      };
+      next();
+    } catch {
+      next(new AppError('Invalid or expired authentication token', 401));
+    }
   }
 }

@@ -7,6 +7,7 @@ export const createTutorTurnSchema = z.object({
   turn_number: z.number().int().nonnegative(),
   sender_type: z.enum(senderTypes),
   message_text: z.string().min(1),
+  visual_state: z.record(z.unknown()).nullable().optional(),
   stage: z.string().min(1),
   teaching_strategy: z.string().min(1),
   interaction_type: z.string().min(1),

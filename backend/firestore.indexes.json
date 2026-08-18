@@ -173,6 +173,67 @@
         { "fieldPath": "request_type", "order": "ASCENDING" },
         { "fieldPath": "response_status", "order": "ASCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "refresh_tokens",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "token_hash", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "refresh_tokens",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "user_id", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "auth_action_tokens",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "token_hash", "order": "ASCENDING" },
+        { "fieldPath": "purpose", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "tutor_turns",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "tutor_session_id", "order": "ASCENDING" },
+        { "fieldPath": "turn_number", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "tutor_session_snapshots",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "tutor_session_id", "order": "ASCENDING" },
+        { "fieldPath": "created_at", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "student_topic_progress",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "student_profile_id", "order": "ASCENDING" },
+        { "fieldPath": "topic_id", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "tutor_activity_logs",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "student_profile_id", "order": "ASCENDING" },
+        { "fieldPath": "completed_at", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "quiz_answers",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "quiz_attempt_id", "order": "ASCENDING" }
+      ]
     }
   ],
   "fieldOverrides": []

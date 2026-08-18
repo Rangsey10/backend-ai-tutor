@@ -9,10 +9,12 @@ import { env } from '../config/env';
 import {
   gradeLevelConverter,
   studentProfileConverter,
+  studentPreferenceConverter,
   studentSubjectConverter,
   subjectConverter,
   userConverter,
 } from '../config/firestore-converters';
+import type { StudentPreference } from '../models/student-preferences.model';
 import type { StudentProfile } from '../models/student-profiles.model';
 import type { StudentSubject } from '../models/student-subjects.model';
 import type { Subject } from '../models/subjects.model';
@@ -20,9 +22,13 @@ import type { User } from '../models/users.model';
 import type {
   AddProfileSubjectRequestInput,
   CreateProfileRequestInput,
-  UpdatePreferencesRequestInput,
   UpdateProfileRequestInput,
 } from '../schemas/profile-request.schema';
+import { type z } from 'zod';
+import {
+  upsertPreferencesRequestSchema,
+  updateOnboardingRequestSchema,
+} from '../schemas/profile-preferences-request.schema';
 import { AppError } from '../utils/AppError';
 
 type ProfileSubjectResponse = StudentSubject & {
@@ -36,11 +42,13 @@ export type UserProfileResponse = {
 };
 
 export type ProfileSubjectsResponse = ProfileSubjectResponse[];
+export type OnboardingStateResponse = {
+  current_step: string;
+  completed_steps: string[];
+  is_completed: boolean;
+};
 
-export type LearningPreferencesResponse = Pick<
-  StudentProfile,
-  'grade_level_id' | 'explanation_level' | 'learning_goal'
->;
+export type StudentPreferenceResponse = StudentPreference;
 
 /** A deliberately small, non-sensitive profile projection for the dashboard. */
 export type DashboardLearnerProfile = {
@@ -312,10 +320,15 @@ export async function createCurrentUserProfile(
     student_profile_id: profileRef.id,
     user_id: firebaseUid,
     grade_level_id: payload.grade_level_id,
+    display_name: payload.display_name ?? null,
+    avatar_url: payload.avatar_url ?? null,
     account_status: 'active',
     explanation_level: payload.explanation_level,
     learning_goal: payload.learning_goal,
+    learning_goals: payload.learning_goals ?? [],
     onboarding_completed: true,
+    onboarding_current_step: 'completed',
+    onboarding_steps_completed: ['profile_created', 'subjects_selected', 'completed'],
     current_streak: 0,
     longest_streak: 0,
     total_learning_time: 0,
@@ -341,6 +354,10 @@ export async function createCurrentUserProfile(
   }));
 
   await firestore.runTransaction(async (transaction) => {
+    transaction.update(userDocument.ref, {
+      full_name: payload.display_name ?? userDocument.data().full_name,
+      profile_image_url: payload.avatar_url ?? userDocument.data().profile_image_url,
+    });
     transaction.set(profileRef, profile);
 
     for (const { ref, subject } of subjectRefs) {
@@ -385,7 +402,9 @@ export async function updateCurrentUserProfile(
   }
 
   const profileDocument = await requireProfileByUser(firebaseUid);
+  const userDocument = await requireUser(firebaseUid);
   const updates: Partial<StudentProfile> = {};
+  const userUpdates: Partial<User> = {};
 
   if (payload.grade_level_id) {
     await requireGradeLevel(payload.grade_level_id);
@@ -396,42 +415,39 @@ export async function updateCurrentUserProfile(
     updates.explanation_level = payload.explanation_level;
   }
 
+  if (Object.prototype.hasOwnProperty.call(payload, 'display_name')) {
+    updates.display_name = payload.display_name ?? null;
+    userUpdates.full_name = payload.display_name ?? userDocument.data().full_name;
+  }
+
+  if (Object.prototype.hasOwnProperty.call(payload, 'avatar_url')) {
+    updates.avatar_url = payload.avatar_url ?? null;
+    userUpdates.profile_image_url = payload.avatar_url ?? null;
+  }
+
   if (Object.prototype.hasOwnProperty.call(payload, 'learning_goal')) {
     updates.learning_goal = payload.learning_goal ?? null;
   }
 
-  if (Object.keys(updates).length === 0) {
+  if (Object.prototype.hasOwnProperty.call(payload, 'learning_goals')) {
+    updates.learning_goals = payload.learning_goals ?? [];
+  }
+
+  if (Object.keys(updates).length === 0 && Object.keys(userUpdates).length === 0) {
     throw new AppError('At least one updatable field is required', 400);
   }
 
-  await profileDocument.ref.update(updates);
+  await db().runTransaction(async (transaction) => {
+    if (Object.keys(updates).length > 0) {
+      transaction.update(profileDocument.ref, updates);
+    }
+
+    if (Object.keys(userUpdates).length > 0) {
+      transaction.update(userDocument.ref, userUpdates);
+    }
+  });
 
   return getCurrentUserProfile(firebaseUid);
-}
-
-export async function getCurrentUserPreferences(
-  firebaseUid: string
-): Promise<LearningPreferencesResponse> {
-  const profileDocument = await requireProfileByUser(firebaseUid);
-  const profile = profileDocument.data();
-
-  return {
-    grade_level_id: profile.grade_level_id,
-    explanation_level: profile.explanation_level,
-    learning_goal: profile.learning_goal,
-  };
-}
-
-export async function updateCurrentUserPreferences(
-  firebaseUid: string,
-  payload: UpdatePreferencesRequestInput
-): Promise<LearningPreferencesResponse> {
-  const updatedProfile = await updateCurrentUserProfile(firebaseUid, payload);
-  return {
-    grade_level_id: updatedProfile.student_profile.grade_level_id,
-    explanation_level: updatedProfile.student_profile.explanation_level,
-    learning_goal: updatedProfile.student_profile.learning_goal,
-  };
 }
 
 export async function getCurrentUserSubjects(
@@ -522,4 +538,81 @@ export async function removeCurrentUserSubject(
   }
 
   await existingSelectionSnapshot.docs[0].ref.update({ status: 'inactive' });
+}
+
+export async function getCurrentUserOnboarding(
+  firebaseUid: string
+): Promise<OnboardingStateResponse> {
+  const profile = (await requireProfileByUser(firebaseUid)).data();
+
+  return {
+    current_step: profile.onboarding_current_step ?? 'profile',
+    completed_steps: profile.onboarding_steps_completed ?? [],
+    is_completed: profile.onboarding_completed,
+  };
+}
+
+export async function updateCurrentUserOnboarding(
+  firebaseUid: string,
+  payload: z.infer<typeof updateOnboardingRequestSchema>
+): Promise<OnboardingStateResponse> {
+  const profileDocument = await requireProfileByUser(firebaseUid);
+  const profile = profileDocument.data();
+  const completedSteps = Array.from(
+    new Set([...(profile.onboarding_steps_completed ?? []), ...payload.completed_steps, payload.current_step])
+  );
+
+  await profileDocument.ref.update({
+    onboarding_current_step: payload.current_step,
+    onboarding_steps_completed: completedSteps,
+    onboarding_completed: payload.is_completed,
+  });
+
+  return {
+    current_step: payload.current_step,
+    completed_steps: completedSteps,
+    is_completed: payload.is_completed,
+  };
+}
+
+export async function getCurrentUserPreferences(
+  firebaseUid: string
+): Promise<StudentPreferenceResponse> {
+  const profile = (await requireProfileByUser(firebaseUid)).data();
+  const preferenceDocument = await db()
+    .collection('student_preferences')
+    .withConverter(studentPreferenceConverter)
+    .doc(profile.student_profile_id)
+    .get();
+
+  if (!preferenceDocument.exists) {
+    throw new AppError('Student preferences are not set up yet', 404);
+  }
+
+  return preferenceDocument.data()!;
+}
+
+export async function upsertCurrentUserPreferences(
+  firebaseUid: string,
+  payload: z.infer<typeof upsertPreferencesRequestSchema>
+): Promise<StudentPreferenceResponse> {
+  await requireSubjects(payload.preferred_subject_ids);
+  const profile = (await requireProfileByUser(firebaseUid)).data();
+  const preferenceRef = db()
+    .collection('student_preferences')
+    .withConverter(studentPreferenceConverter)
+    .doc(profile.student_profile_id);
+
+  const preference: StudentPreference = {
+    student_preference_id: profile.student_profile_id,
+    student_profile_id: profile.student_profile_id,
+    preferred_visual_styles: payload.preferred_visual_styles,
+    learning_pace: payload.learning_pace,
+    preferred_subject_ids: payload.preferred_subject_ids,
+    notification_settings: payload.notification_settings,
+    updated_at: Timestamp.now(),
+  };
+
+  await preferenceRef.set(preference);
+  return preference;
 }

@@ -2,12 +2,14 @@ import type { Request, Response } from 'express';
 import {
   addCurrentUserSubject,
   createCurrentUserProfile,
+  getCurrentUserOnboarding,
   getCurrentUserPreferences,
   getCurrentUserProfile,
   getCurrentUserSubjects,
   removeCurrentUserSubject,
-  updateCurrentUserPreferences,
+  updateCurrentUserOnboarding,
   updateCurrentUserProfile,
+  upsertCurrentUserPreferences,
 } from '../services/profile.service';
 import { asyncHandler } from '../utils/asyncHandler';
 import { sendCreated, sendNoContent, sendSuccess } from '../utils/ApiResponse';
@@ -33,7 +35,7 @@ export const getPreferences = asyncHandler(async (req: Request, res: Response) =
 });
 
 export const updatePreferences = asyncHandler(async (req: Request, res: Response) => {
-  const preferences = await updateCurrentUserPreferences(req.user!.uid, req.body);
+  const preferences = await upsertCurrentUserPreferences(req.user!.uid, req.body);
   sendSuccess(res, preferences, 'Learning preferences saved successfully');
 });
 
@@ -50,4 +52,14 @@ export const addProfileSubject = asyncHandler(async (req: Request, res: Response
 export const deleteProfileSubject = asyncHandler(async (req: Request, res: Response) => {
   await removeCurrentUserSubject(req.user!.uid, req.params.subjectId);
   sendNoContent(res);
+});
+
+export const getOnboardingState = asyncHandler(async (req: Request, res: Response) => {
+  const onboarding = await getCurrentUserOnboarding(req.user!.uid);
+  sendSuccess(res, onboarding, 'Onboarding state retrieved successfully');
+});
+
+export const updateOnboardingState = asyncHandler(async (req: Request, res: Response) => {
+  const onboarding = await updateCurrentUserOnboarding(req.user!.uid, req.body);
+  sendSuccess(res, onboarding, 'Onboarding state updated successfully');
 });

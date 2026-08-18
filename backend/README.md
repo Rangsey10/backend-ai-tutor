@@ -70,6 +70,22 @@ src/
 
 ## API Endpoints
 
+### Authentication & User Management
+
+All endpoints are under `/api/v1/auth`.
+
+| Method | Endpoint                               | Description                                          |
+| ------ | -------------------------------------- | ---------------------------------------------------- |
+| POST   | `/api/v1/auth/register`                | Register user with hashed password + issue tokens    |
+| POST   | `/api/v1/auth/login`                   | Login with email/password and receive access/refresh |
+| POST   | `/api/v1/auth/refresh`                 | Rotate refresh token and issue new token pair        |
+| POST   | `/api/v1/auth/logout`                  | Revoke a specific refresh token                      |
+| POST   | `/api/v1/auth/logout-all`              | Revoke all refresh tokens for authenticated user     |
+| POST   | `/api/v1/auth/password-reset/request`  | Request password reset token                         |
+| POST   | `/api/v1/auth/password-reset/confirm`  | Reset password using token                           |
+| POST   | `/api/v1/auth/email-verification/request` | Request email verification token (authenticated)   |
+| POST   | `/api/v1/auth/email-verification/confirm` | Confirm email verification token                  |
+
 ### Profile Management (Task 5 — User Profile and Learning Preference APIs)
 
 All endpoints under `/api/v1/profile` are protected by authentication (`authenticate` middleware). Students can only access their own profile.
@@ -84,6 +100,32 @@ All endpoints under `/api/v1/profile` are protected by authentication (`authenti
 | `GET`    | `/api/v1/profile/subjects`            | Get student's selected subjects with metadata                               |
 | `POST`   | `/api/v1/profile/subjects`            | Add a new subject selection                                                 |
 | `DELETE` | `/api/v1/profile/subjects/:subjectId` | Remove a subject selection (soft delete)                                    |
+| `GET`    | `/api/v1/profile/onboarding`          | Retrieve onboarding state                                                   |
+| `PATCH`  | `/api/v1/profile/onboarding`          | Update onboarding step/completion state                                     |
+| `GET`    | `/api/v1/profile/preferences`         | Retrieve visual/pacing/notification preferences                             |
+| `PUT`    | `/api/v1/profile/preferences`         | Upsert visual/pacing/notification preferences                               |
+
+### AI Tutor Session Persistence
+
+All endpoints are under `/api/v1/tutor-sessions` and require authentication.
+
+| Method | Endpoint                                 | Description                                               |
+| ------ | ---------------------------------------- | --------------------------------------------------------- |
+| POST   | `/api/v1/tutor-sessions`                 | Create tutoring session with initial visual context       |
+| POST   | `/api/v1/tutor-sessions/:sessionId/sync` | Append turn and optional visual snapshot with concurrency |
+| GET    | `/api/v1/tutor-sessions/:sessionId`      | Resume session with full turns + visual snapshots         |
+| PATCH  | `/api/v1/tutor-sessions/:sessionId/archive` | Archive/end a tutoring session                        |
+
+### Progress, Quiz Results, Tutor Activity
+
+All endpoints are under `/api/v1/progress` and require authentication.
+
+| Method | Endpoint                         | Description                                             |
+| ------ | -------------------------------- | ------------------------------------------------------- |
+| POST   | `/api/v1/progress/quiz-results`  | Submit quiz result and update aggregate progress        |
+| POST   | `/api/v1/progress/tutor-activity`| Log tutor interaction activity                          |
+| GET    | `/api/v1/progress/dashboard`     | Fetch computed dashboard summary metrics                |
+| GET    | `/api/v1/progress/history`       | Fetch historical quiz attempts, progress, activity logs |
 
 **Notes:**
 

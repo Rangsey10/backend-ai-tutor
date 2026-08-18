@@ -22,6 +22,12 @@ import { TutorSession } from '@models/tutor-sessions.model';
 import { TutorTurn } from '@models/tutor-turns.model';
 import { Topic } from '@models/topics.model';
 import { User } from '@models/users.model';
+import { AuthCredential } from '@models/auth-credentials.model';
+import { RefreshTokenRecord } from '@models/refresh-tokens.model';
+import { AuthActionToken } from '@models/auth-action-tokens.model';
+import { StudentPreference } from '@models/student-preferences.model';
+import { TutorSessionSnapshot } from '@models/tutor-session-snapshots.model';
+import { TutorActivityLog } from '@models/tutor-activity-logs.model';
 
 function createConverter<T extends object>(): FirestoreDataConverter<T> {
   return {
@@ -52,6 +58,12 @@ export const quizQuestionConverter = createConverter<QuizQuestion>();
 export const quizOptionConverter = createConverter<QuizOption>();
 export const quizAttemptConverter = createConverter<QuizAttempt>();
 export const quizAnswerConverter = createConverter<QuizAnswer>();
+export const authCredentialConverter = createConverter<AuthCredential>();
+export const refreshTokenConverter = createConverter<RefreshTokenRecord>();
+export const authActionTokenConverter = createConverter<AuthActionToken>();
+export const studentPreferenceConverter = createConverter<StudentPreference>();
+export const tutorSessionSnapshotConverter = createConverter<TutorSessionSnapshot>();
+export const tutorActivityLogConverter = createConverter<TutorActivityLog>();
 
 export const withFirestoreConverters = {
   users: userConverter,
@@ -72,6 +84,12 @@ export const withFirestoreConverters = {
   options: quizOptionConverter,
   quiz_attempts: quizAttemptConverter,
   answers: quizAnswerConverter,
+  auth_credentials: authCredentialConverter,
+  refresh_tokens: refreshTokenConverter,
+  auth_action_tokens: authActionTokenConverter,
+  student_preferences: studentPreferenceConverter,
+  tutor_session_snapshots: tutorSessionSnapshotConverter,
+  tutor_activity_logs: tutorActivityLogConverter,
 };
 
 export const firestoreTimestamps = { Timestamp };

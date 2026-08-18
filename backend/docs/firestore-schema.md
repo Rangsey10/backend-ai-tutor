@@ -5,13 +5,18 @@ This backend stores Firestore documents with plain string foreign keys and Fires
 ## MVP Collections Summary
 
 1. `users`
+1. `auth_credentials`
+1. `refresh_tokens`
+1. `auth_action_tokens`
 1. `student_profiles`
+1. `student_preferences`
 1. `grade_levels`
 1. `subjects`
 1. `topics`
 1. `student_subjects`
 1. `tutor_sessions`
-1. `tutor_sessions/{sessionId}/turns`
+1. `tutor_turns`
+1. `tutor_session_snapshots`
 1. `tutor_sessions/{sessionId}/attempts`
 1. `tutor_sessions/{sessionId}/verifications`
 1. `quizzes`
@@ -20,19 +25,25 @@ This backend stores Firestore documents with plain string foreign keys and Fires
 1. `quiz_attempts`
 1. `quiz_attempts/{attemptId}/answers`
 1. `student_topic_progress`
+1. `tutor_activity_logs`
 1. `reported_ai_responses`
 1. `ai_request_logs`
 
 ## Collections
 
 - `users`: auth and profile records, including `firebase_uid`, `role`, and account metadata.
+- `auth_credentials`: local authentication credentials, password hashes, and lockout status.
+- `refresh_tokens`: opaque refresh token storage supporting rotation/revocation.
+- `auth_action_tokens`: short-lived password reset and email verification tokens.
 - `student_profiles`: student-specific learning preferences and progress, linked by `user_id`.
+- `student_preferences`: visual style, pacing, and notification preferences linked by `student_profile_id`.
 - `grade_levels`: canonical grade metadata used for placement and filtering.
 - `subjects`: subject catalog entries with display metadata.
 - `topics`: topics scoped by `unit_id`, `subject_id`, and `grade_level_id`, with compact subject and grade snapshots when needed.
 - `student_subjects`: subject selections and mastery progress per student.
 - `tutor_sessions`: top-level session records for a tutor-driven lesson flow.
-- `tutor_sessions/{sessionId}/turns`: ordered conversation turns between the student and AI tutor.
+- `tutor_turns`: ordered conversation turns between the student and AI tutor.
+- `tutor_session_snapshots`: visual/canvas/diagram snapshots for resume checkpoints.
 - `tutor_sessions/{sessionId}/attempts`: student answers submitted during a session.
 - `tutor_sessions/{sessionId}/verifications`: mathematical verification records tied to a turn.
 - `quizzes`: top-level quiz definitions generated from topics, sessions, or manual authoring.
@@ -41,6 +52,7 @@ This backend stores Firestore documents with plain string foreign keys and Fires
 - `quiz_attempts`: per-student quiz attempt summaries.
 - `quiz_attempts/{attemptId}/answers`: question-level quiz answers inside an attempt.
 - `student_topic_progress`: denormalized student mastery and progress by topic.
+- `tutor_activity_logs`: aggregated tutor interaction activity for analytics dashboards.
 - `reported_ai_responses`: student-submitted AI response reports for moderation.
 - `ai_request_logs`: operational logs for AI provider requests and responses.
 

@@ -10,11 +10,16 @@ export interface TutorSession {
   topic_id: string;
   lesson_id: string | null;
   original_question: string;
+  initial_prompt: string | null;
+  visual_context: Record<string, unknown> | null;
+  resume_checkpoint: Record<string, unknown> | null;
+  last_turn_number: number;
   detected_language: string;
   detected_intent: string;
   detected_problem_type: string;
   session_status: TutorSessionStatus;
   verification_status: TutorVerificationStatus;
+  archived_at: Timestamp | null;
   created_at: Timestamp;
   updated_at: Timestamp;
 }
@@ -26,6 +31,8 @@ export interface TutorSessionCreateInput {
   topic_id: string;
   lesson_id?: string | null;
   original_question: string;
+  initial_prompt?: string | null;
+  visual_context?: Record<string, unknown> | null;
   detected_language: string;
   detected_intent: string;
   detected_problem_type: string;
@@ -39,9 +46,14 @@ export interface TutorSessionUpdateInput {
   topic_id?: string;
   lesson_id?: string | null;
   original_question?: string;
+  initial_prompt?: string | null;
+  visual_context?: Record<string, unknown> | null;
+  resume_checkpoint?: Record<string, unknown> | null;
+  last_turn_number?: number;
   detected_language?: string;
   detected_intent?: string;
   detected_problem_type?: string;
   session_status?: TutorSessionStatus;
   verification_status?: TutorVerificationStatus;
+  archived_at?: Timestamp | null;
 }

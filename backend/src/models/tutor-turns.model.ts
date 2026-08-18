@@ -8,6 +8,7 @@ export interface TutorTurn {
   turn_number: number;
   sender_type: TutorTurnSenderType;
   message_text: string;
+  visual_state: Record<string, unknown> | null;
   stage: string;
   teaching_strategy: string;
   interaction_type: string;
@@ -21,6 +22,7 @@ export interface TutorTurnCreateInput {
   turn_number: number;
   sender_type: TutorTurnSenderType;
   message_text: string;
+  visual_state?: Record<string, unknown> | null;
   stage: string;
   teaching_strategy: string;
   interaction_type: string;
@@ -32,6 +34,7 @@ export interface TutorTurnUpdateInput {
   turn_number?: number;
   sender_type?: TutorTurnSenderType;
   message_text?: string;
+  visual_state?: Record<string, unknown> | null;
   stage?: string;
   teaching_strategy?: string;
   interaction_type?: string;

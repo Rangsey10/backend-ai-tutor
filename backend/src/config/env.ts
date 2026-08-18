@@ -82,6 +82,12 @@ export const env = {
     allowLocalFallback: allowDevelopmentFallbacks,
     allowDemoAuthentication,
   },
+  auth: {
+    jwtAccessSecret: process.env.JWT_ACCESS_SECRET ?? 'dev-access-secret-change-me',
+    accessTokenTtlMinutes: parseInt(process.env.JWT_ACCESS_TTL_MINUTES ?? '15', 10),
+    refreshTokenTtlDays: parseInt(process.env.JWT_REFRESH_TTL_DAYS ?? '30', 10),
+    actionTokenTtlMinutes: parseInt(process.env.AUTH_ACTION_TOKEN_TTL_MINUTES ?? '30', 10),
+  },
 
   aiService: {
     baseUrl: process.env.AI_SERVICE_BASE_URL ?? 'http://localhost:8001',

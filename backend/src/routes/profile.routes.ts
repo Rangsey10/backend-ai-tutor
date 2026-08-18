@@ -4,8 +4,14 @@ import {
   createProfile,
   deleteProfileSubject,
   getPreferences,
+  getOnboardingState,
   getProfile,
   getProfileSubjects,
+  updateOnboardingState,
+  getPreferences,
+  getProfile,
+  getProfileSubjects,
+  updateOnboardingState,
   updatePreferences,
   updateProfile,
 } from '../controllers/profile.controller';
@@ -16,19 +22,23 @@ import {
   addProfileSubjectRequestSchema,
   createProfileRequestSchema,
   deleteProfileSubjectParamsSchema,
-  updatePreferencesRequestSchema,
   updateProfileRequestSchema,
 } from '../schemas/profile-request.schema';
+import {
+  updateOnboardingRequestSchema,
+  upsertPreferencesRequestSchema,
+} from '../schemas/profile-preferences-request.schema';
 
 const router = Router();
 
-router.use(authenticate, authorize('student'));
+router.use(authenticate);
+router.use(authorize('student', 'tutor', 'teacher', 'admin', 'administrator'));
 
 router.get('/', getProfile);
 router.post('/', validate({ body: createProfileRequestSchema }), createProfile);
 router.patch('/', validate({ body: updateProfileRequestSchema }), updateProfile);
 router.get('/preferences', getPreferences);
-router.put('/preferences', validate({ body: updatePreferencesRequestSchema }), updatePreferences);
+router.put('/preferences', validate({ body: upsertPreferencesRequestSchema }), updatePreferences);
 router.get('/subjects', getProfileSubjects);
 router.post('/subjects', validate({ body: addProfileSubjectRequestSchema }), addProfileSubject);
 router.delete(
@@ -36,5 +46,7 @@ router.delete(
   validate({ params: deleteProfileSubjectParamsSchema }),
   deleteProfileSubject
 );
+router.get('/onboarding', getOnboardingState);
+router.patch('/onboarding', validate({ body: updateOnboardingRequestSchema }), updateOnboardingState);
 
 export default router;
