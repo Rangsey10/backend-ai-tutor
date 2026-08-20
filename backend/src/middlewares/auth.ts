@@ -1,7 +1,7 @@
 import { NextFunction, Request, Response } from 'express';
 import { getAuth } from '../config/firebase';
 import { env } from '../config/env';
-import { getFirestore } from '../config/firebase';
+import { getFirestore, isFirebaseInitialized } from '../config/firebase';
 import { userConverter } from '../config/firestore-converters';
 import { AppError } from '../utils/AppError';
 import { USER_ROLES, normalizeUserRole, type UserRole } from '../types/user-role';
@@ -42,6 +42,18 @@ export async function authenticate(
 
   try {
     const claims = verifyAccessToken(token);
+    if (!isFirebaseInitialized() && env.firebase.allowLocalFallback && !env.isProductionLike) {
+      req.user = {
+        uid: `local:${claims.sub}`,
+        userId: claims.sub,
+        email: claims.email,
+        role: claims.role,
+        normalizedRole: normalizeUserRole(claims.role),
+      };
+      next();
+      return;
+    }
+
     const userDocument = await getFirestore().collection('users').withConverter(userConverter).doc(claims.sub).get();
 
     if (!userDocument.exists) {

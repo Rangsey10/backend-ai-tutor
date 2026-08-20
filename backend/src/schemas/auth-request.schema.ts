@@ -18,6 +18,12 @@ export const loginRequestSchema = z
   })
   .strict();
 
+export const googleLoginRequestSchema = z
+  .object({
+    id_token: z.string().min(1),
+  })
+  .strict();
+
 export const refreshTokenRequestSchema = z
   .object({
     refresh_token: z.string().min(1),

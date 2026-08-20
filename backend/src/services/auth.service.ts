@@ -1,6 +1,6 @@
 import bcrypt from 'bcryptjs';
 import { Timestamp, type Firestore } from 'firebase-admin/firestore';
-import { getFirestore } from '../config/firebase';
+import { getAuth, getFirestore } from '../config/firebase';
 import { env } from '../config/env';
 import {
   authActionTokenConverter,
@@ -13,6 +13,7 @@ import type { AuthCredential } from '../models/auth-credentials.model';
 import type { RefreshTokenRecord } from '../models/refresh-tokens.model';
 import type { User } from '../models/users.model';
 import type { UserRole } from '../types/user-role';
+import { normalizeUserRole } from '../types/user-role';
 import { AppError } from '../utils/AppError';
 import { generateOpaqueToken, hashToken, signAccessToken } from '../utils/auth-tokens';
 
@@ -61,6 +62,17 @@ async function findUserByEmail(email: string): Promise<User | null> {
     .collection('users')
     .withConverter(userConverter)
     .where('email', '==', normalizeEmail(email))
+    .limit(1)
+    .get();
+
+  return snapshot.empty ? null : snapshot.docs[0].data();
+}
+
+async function findUserByFirebaseUid(firebaseUid: string): Promise<User | null> {
+  const snapshot = await db()
+    .collection('users')
+    .withConverter(userConverter)
+    .where('firebase_uid', '==', firebaseUid)
     .limit(1)
     .get();
 
@@ -267,6 +279,55 @@ export async function loginUser(
       last_login_at: now,
       updated_at: now,
     });
+
+  return buildAuthSuccessResponse(user, ipAddress, userAgent);
+}
+
+export async function loginAdminWithFirebaseIdToken(
+  idToken: string,
+  ipAddress?: string,
+  userAgent?: string
+): Promise<AuthSuccessResponse> {
+  const decodedToken = await getAuth().verifyIdToken(idToken);
+  const email = typeof decodedToken.email === 'string' ? decodedToken.email : '';
+  let user =
+    (await findUserByFirebaseUid(decodedToken.uid)) ||
+    (email ? await findUserByEmail(email) : null);
+
+  if (!user || normalizeUserRole(user.role) !== 'admin') {
+    throw new AppError('Admin access is required for Google sign-in', 403);
+  }
+
+  if (user.account_status !== 'active') {
+    throw new AppError('Admin account is not active', 403);
+  }
+
+  const googleName = typeof decodedToken.name === 'string' ? decodedToken.name.trim() : '';
+  const googlePhoto = typeof decodedToken.picture === 'string' ? decodedToken.picture.trim() : '';
+  const demoNames = new Set(['Charya Som', 'Admin User', 'Admin']);
+  const userUpdates: Partial<Pick<User, 'full_name' | 'profile_image_url'>> & { updated_at?: Timestamp } = {};
+
+  if (googleName && demoNames.has(user.full_name)) {
+    userUpdates.full_name = googleName;
+  }
+  if (googlePhoto && !user.profile_image_url) {
+    userUpdates.profile_image_url = googlePhoto;
+  }
+
+  if (Object.keys(userUpdates).length > 0) {
+    await db()
+      .collection('users')
+      .withConverter(userConverter)
+      .doc(user.user_id)
+      .update({
+        ...userUpdates,
+        updated_at: Timestamp.now(),
+      });
+    user = {
+      ...user,
+      ...userUpdates,
+    };
+  }
 
   return buildAuthSuccessResponse(user, ipAddress, userAgent);
 }

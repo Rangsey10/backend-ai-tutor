@@ -55,6 +55,10 @@ function parseCorsOrigins(value: string | undefined): string[] {
     .filter(Boolean);
 }
 
+function cleanEnvValue(value: string | undefined): string {
+  return (value ?? '').trim().replace(/^["']|["'],?$/g, '');
+}
+
 const corsOrigins = parseCorsOrigins(process.env.CORS_ALLOWED_ORIGINS);
 if (isProductionLike && (corsOrigins.length === 0 || corsOrigins.includes('*'))) {
   throw new Error('CORS_ALLOWED_ORIGINS must be a non-wildcard allow-list in staging and production');
@@ -75,9 +79,9 @@ export const env = {
 
   // Firebase Admin SDK
   firebase: {
-    projectId: process.env.FIREBASE_PROJECT_ID ?? '',
-    clientEmail: process.env.FIREBASE_CLIENT_EMAIL ?? '',
-    privateKey: (process.env.FIREBASE_PRIVATE_KEY ?? '').replace(/\\n/g, '\n'),
+    projectId: cleanEnvValue(process.env.FIREBASE_PROJECT_ID),
+    clientEmail: cleanEnvValue(process.env.FIREBASE_CLIENT_EMAIL),
+    privateKey: cleanEnvValue(process.env.FIREBASE_PRIVATE_KEY).replace(/\\n/g, '\n'),
     firestoreEmulatorHost: process.env.FIRESTORE_EMULATOR_HOST ?? '',
     allowLocalFallback: allowDevelopmentFallbacks,
     allowDemoAuthentication,
@@ -87,6 +91,15 @@ export const env = {
     accessTokenTtlMinutes: parseInt(process.env.JWT_ACCESS_TTL_MINUTES ?? '15', 10),
     refreshTokenTtlDays: parseInt(process.env.JWT_REFRESH_TTL_DAYS ?? '30', 10),
     actionTokenTtlMinutes: parseInt(process.env.AUTH_ACTION_TOKEN_TTL_MINUTES ?? '30', 10),
+  },
+  devAdmin: {
+    email: process.env.DEV_ADMIN_EMAIL ?? 'admin@rean.ai',
+    password: process.env.DEV_ADMIN_PASSWORD ?? 'Admin12345',
+    fullName: process.env.DEV_ADMIN_NAME ?? 'Local Admin',
+  },
+  seedAdmin: {
+    email: cleanEnvValue(process.env.SEED_ADMIN_EMAIL),
+    fullName: cleanEnvValue(process.env.SEED_ADMIN_NAME) || 'Admin User',
   },
 
   aiService: {

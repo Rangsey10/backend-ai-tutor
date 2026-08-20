@@ -1,4 +1,6 @@
-import admin from 'firebase-admin';
+import { cert, initializeApp } from 'firebase-admin/app';
+import { getAuth as getAdminAuth } from 'firebase-admin/auth';
+import { getFirestore as getAdminFirestore } from 'firebase-admin/firestore';
 import { env } from './env';
 import { logger } from '../utils/logger';
 
@@ -13,7 +15,7 @@ export function initFirebase(): void {
   if (initialized) return;
 
   if (env.firebase.firestoreEmulatorHost && env.firebase.projectId) {
-    admin.initializeApp({
+    initializeApp({
       projectId: env.firebase.projectId,
     });
     initialized = true;
@@ -32,8 +34,8 @@ export function initFirebase(): void {
     return;
   }
 
-  admin.initializeApp({
-    credential: admin.credential.cert({
+  initializeApp({
+    credential: cert({
       projectId: env.firebase.projectId,
       clientEmail: env.firebase.clientEmail,
       privateKey: env.firebase.privateKey,
@@ -46,12 +48,16 @@ export function initFirebase(): void {
 
 export function getFirestore() {
   if (!initialized) initFirebase();
-  return admin.firestore();
+  if (!initialized) {
+    throw new Error('Firebase Admin is not initialized. Add Firebase credentials or enable a local fallback path.');
+  }
+  return getAdminFirestore();
 }
 
 export function getAuth() {
   if (!initialized) initFirebase();
-  return admin.auth();
+  if (!initialized) {
+    throw new Error('Firebase Admin is not initialized. Add Firebase credentials or enable a local fallback path.');
+  }
+  return getAdminAuth();
 }
-
-export default admin;
