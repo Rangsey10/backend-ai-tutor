@@ -26,22 +26,28 @@ type CatalogTopic = {
 
 const grades: CatalogGrade[] = [
   {
+    grade_level_id: 'grade-8',
+    grade_name: 'Grade 8',
+    grade_number: 8,
+    description: 'Grade 8 Mathematics foundations supported by Visual Tutor',
+  },
+  {
+    grade_level_id: 'grade-9',
+    grade_name: 'Grade 9',
+    grade_number: 9,
+    description: 'Grade 9 equations and coordinate-graph foundations supported by Visual Tutor',
+  },
+  {
     grade_level_id: 'grade-10',
     grade_name: 'Grade 10',
     grade_number: 10,
-    description: 'Cambodian high school Grade 10 foundation topics',
-  },
-  {
-    grade_level_id: 'grade-11',
-    grade_name: 'Grade 11',
-    grade_number: 11,
-    description: 'Cambodian high school Grade 11 function topics',
+    description: 'Grade 10 linear equations and basic quadratic graphs supported by Visual Tutor',
   },
   {
     grade_level_id: 'grade-12',
     grade_name: 'Grade 12',
     grade_number: 12,
-    description: 'Cambodian high school Grade 12 exam preparation topics',
+    description: 'Grade 12 Mathematics (Limits of Functions) supported by Visual Tutor',
   },
 ];
 
@@ -58,6 +64,36 @@ const subjects: CatalogSubject[] = [
 
 const topics: CatalogTopic[] = [
   {
+    topic_id: 'integer-fraction-decimal-arithmetic-g8', subject_id: 'math', grade_level_id: 'grade-8',
+    topic_name: 'Integer, Fraction & Decimal Arithmetic', topic_code: 'INTEGER_FRACTION_DECIMAL_ARITHMETIC',
+    difficulty_level: 'beginner', learning_objective: 'Use signs, order of operations, fractions, and finite decimals safely.',
+  },
+  {
+    topic_id: 'percentages-g8', subject_id: 'math', grade_level_id: 'grade-8',
+    topic_name: 'Percentages', topic_code: 'PERCENTAGES', difficulty_level: 'beginner',
+    learning_objective: 'Convert a percent and calculate a percentage of a numeric base.',
+  },
+  {
+    topic_id: 'linear-equations-g8', subject_id: 'math', grade_level_id: 'grade-8',
+    topic_name: 'Linear Equations', topic_code: 'LINEAR_EQUATIONS', difficulty_level: 'beginner',
+    learning_objective: 'Solve one-variable linear equations while preserving equality.',
+  },
+  {
+    topic_id: 'linear-equations-g9', subject_id: 'math', grade_level_id: 'grade-9',
+    topic_name: 'Linear Equations', topic_code: 'LINEAR_EQUATIONS', difficulty_level: 'intermediate',
+    learning_objective: 'Solve and check one-variable linear equations, including both-side terms.',
+  },
+  {
+    topic_id: 'slope-from-two-points-g9', subject_id: 'math', grade_level_id: 'grade-9',
+    topic_name: 'Slope from Two Points', topic_code: 'SLOPE_FROM_TWO_POINTS', difficulty_level: 'beginner',
+    learning_objective: 'Calculate slope as vertical change divided by horizontal change.',
+  },
+  {
+    topic_id: 'straight-line-graphs-g9', subject_id: 'math', grade_level_id: 'grade-9',
+    topic_name: 'Straight-Line Graphs', topic_code: 'STRAIGHT_LINE_GRAPHS', difficulty_level: 'intermediate',
+    learning_objective: 'Read and graph a numeric straight line from its equation or two points.',
+  },
+  {
     topic_id: 'linear-equations-g10',
     subject_id: 'math',
     grade_level_id: 'grade-10',
@@ -67,49 +103,18 @@ const topics: CatalogTopic[] = [
     learning_objective: 'Solve one-variable equations by preserving balance on both sides.',
   },
   {
-    topic_id: 'coordinate-plane-g10',
+    topic_id: 'limits-of-functions-g12',
     subject_id: 'math',
-    grade_level_id: 'grade-10',
-    topic_name: 'Coordinate Plane',
-    topic_code: 'COORDINATE_PLANE',
-    difficulty_level: 'beginner',
-    learning_objective: 'Plot points and interpret x/y coordinates.',
+    grade_level_id: 'grade-12',
+    topic_name: 'Limits of Functions',
+    topic_code: 'LIMITS_OF_FUNCTIONS',
+    difficulty_level: 'advanced',
+    learning_objective: 'Evaluate limits of a function at a point and at infinity, including one-sided limits.',
   },
   {
-    topic_id: 'slope-g10',
-    subject_id: 'math',
-    grade_level_id: 'grade-10',
-    topic_name: 'Slope',
-    topic_code: 'SLOPE',
-    difficulty_level: 'beginner',
-    learning_objective: 'Calculate slope from two points or a graph.',
-  },
-  {
-    topic_id: 'equation-of-line-g10',
-    subject_id: 'math',
-    grade_level_id: 'grade-10',
-    topic_name: 'Equation of a Line',
-    topic_code: 'EQUATION_OF_LINE',
-    difficulty_level: 'intermediate',
-    learning_objective: 'Find line equations from points, slope, and intercept.',
-  },
-  {
-    topic_id: 'functions-g11',
-    subject_id: 'math',
-    grade_level_id: 'grade-11',
-    topic_name: 'Functions',
-    topic_code: 'FUNCTIONS',
-    difficulty_level: 'intermediate',
-    learning_objective: 'Understand function notation, inputs, outputs, domain, and range.',
-  },
-  {
-    topic_id: 'quadratic-functions-g11',
-    subject_id: 'math',
-    grade_level_id: 'grade-11',
-    topic_name: 'Quadratic Functions',
-    topic_code: 'QUADRATIC_FUNCTIONS',
-    difficulty_level: 'intermediate',
-    learning_objective: 'Analyze and solve basic quadratic expressions and graphs.',
+    topic_id: 'basic-quadratic-graphs-g10', subject_id: 'math', grade_level_id: 'grade-10',
+    topic_name: 'Basic Quadratic Graphs', topic_code: 'BASIC_QUADRATIC_GRAPHS', difficulty_level: 'intermediate',
+    learning_objective: 'Graph a numeric parabola by finding its vertex and using symmetry.',
   },
 ];
 
