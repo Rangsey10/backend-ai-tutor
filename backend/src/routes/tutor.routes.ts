@@ -5,9 +5,11 @@ import {
   getSession,
   getUserSessions,
   sendTurn,
+  streamTurn,
   scanProblem,
   transcribeVoice,
   synthesizeVoice,
+  getRestrictionStatus,
 } from '../controllers/tutor.controller';
 import { authenticate } from '../middlewares/auth';
 import { authorize } from '../middlewares/authorize';
@@ -23,6 +25,7 @@ import {
 const router = Router();
 
 router.use(authenticate, authorize('student'));
+router.get('/restriction-status', getRestrictionStatus);
 
 router.post(
   '/sessions',
@@ -53,6 +56,12 @@ router.get(
   getUserSessions
 );
 router.get('/sessions/:sessionId', validate({ params: tutorSessionParamsSchema }), getSession);
+router.post(
+  '/turn/stream',
+  userRateLimit('tutor-turn-stream', 20, 60_000),
+  validate({ body: tutorTurnRequestSchema }),
+  streamTurn
+);
 router.post(
   '/turn',
   userRateLimit('tutor-turn', 40, 60_000),

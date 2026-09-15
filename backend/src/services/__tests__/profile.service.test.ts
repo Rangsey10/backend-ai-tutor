@@ -105,6 +105,7 @@ describe('profile.service', () => {
                                 subject_id: 'math',
                                 subject_name: 'Mathematics',
                                 icon_url: null,
+                                status: 'active',
                               }),
                               ref: { update: jest.fn() },
                             },

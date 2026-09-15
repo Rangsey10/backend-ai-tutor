@@ -194,6 +194,26 @@ describe('student API foundation', () => {
     });
   });
 
+  it('accepts only supported student-facing preferred languages', async () => {
+    await request(app)
+      .patch('/api/v1/profile')
+      .set(authHeader())
+      .send({ preferred_language: 'km' })
+      .expect(200);
+
+    expect(mockedUpdateCurrentUserProfile).toHaveBeenCalledWith('firebase-uid', {
+      preferred_language: 'km',
+    });
+
+    const response = await request(app)
+      .patch('/api/v1/profile')
+      .set(authHeader())
+      .send({ preferred_language: 'untrusted-language' })
+      .expect(400);
+
+    expect(response.body.error.code).toBe('VALIDATION_ERROR');
+  });
+
   it('saves and reads learning preferences', async () => {
     const readResponse = await request(app)
       .get('/api/v1/profile/preferences')
@@ -241,7 +261,7 @@ describe('student API foundation', () => {
     expect(topicsResponse.body.data).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ topic_name: 'Linear Equations' }),
-        expect.objectContaining({ topic_name: 'Equation of a Line' }),
+        expect.objectContaining({ topic_name: 'Basic Quadratic Graphs' }),
       ])
     );
   });

@@ -146,7 +146,7 @@ async function requireProfileByUser(
 }
 
 async function requireGradeLevel(gradeLevelId: string): Promise<void> {
-  await requireSingleByField(
+  const grade = await requireSingleByField(
     'grade_levels',
     gradeLevelConverter,
     'grade_level_id',
@@ -154,6 +154,12 @@ async function requireGradeLevel(gradeLevelId: string): Promise<void> {
     'Grade level not found',
     400
   );
+  if (grade.data().status !== 'active') {
+    throw new AppError('Grade level is not available for student learning', 400);
+  }
+  if (![10, 11, 12].includes(grade.data().grade_number)) {
+    throw new AppError('Student learning profiles support Grades 10–12 only', 400);
+  }
 }
 
 async function requireSubjects(subjectIds: string[]): Promise<void> {
@@ -164,7 +170,7 @@ async function requireSubjects(subjectIds: string[]): Promise<void> {
     // eslint-disable-next-line no-await-in-loop
     const subject = await getSingleByField('subjects', subjectConverter, 'subject_id', subjectId);
 
-    if (!subject) {
+    if (!subject || subject.data().status !== 'active') {
       missingSubjectIds.push(subjectId);
     }
   }
@@ -361,6 +367,7 @@ export async function createCurrentUserProfile(
     transaction.update(userDocument.ref, {
       full_name: payload.display_name ?? userDocument.data().full_name,
       profile_image_url: payload.avatar_url ?? userDocument.data().profile_image_url,
+      preferred_language: payload.preferred_language ?? userDocument.data().preferred_language,
     });
     transaction.set(profileRef, profile);
 
@@ -429,6 +436,10 @@ export async function updateCurrentUserProfile(
     userUpdates.profile_image_url = payload.avatar_url ?? null;
   }
 
+  if (Object.prototype.hasOwnProperty.call(payload, 'preferred_language')) {
+    userUpdates.preferred_language = payload.preferred_language;
+  }
+
   if (Object.prototype.hasOwnProperty.call(payload, 'learning_goal')) {
     updates.learning_goal = payload.learning_goal ?? null;
   }
@@ -474,6 +485,9 @@ export async function addCurrentUserSubject(
     `Subject not found for subject_id ${payload.subject_id}`,
     400
   );
+  if (subjectDocument.data().status !== 'active') {
+    throw new AppError('This subject is not available for student learning', 400);
+  }
   const firestore = db();
 
   const existingSelectionSnapshot = await firestore

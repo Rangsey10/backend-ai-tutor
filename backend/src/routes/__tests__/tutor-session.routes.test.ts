@@ -2,6 +2,14 @@ import request from 'supertest';
 import { Timestamp } from 'firebase-admin/firestore';
 import { createApp } from '../../app';
 import * as tutorSessionService from '../../services/tutor-session.service';
+import { assertStudentAiAccess } from '../../services/admin-ai-review.service';
+import { AppError } from '../../utils/AppError';
+
+jest.mock('../../config/firebase', () => ({
+  getAuth: jest.fn(),
+  getFirestore: jest.fn(),
+  isFirebaseInitialized: jest.fn(() => true),
+}));
 
 jest.mock('../../middlewares/auth', () => ({
   authenticate: (
@@ -27,13 +35,31 @@ jest.mock('../../services/tutor-session.service', () => ({
   archiveTutorSession: jest.fn(),
 }));
 
+jest.mock('../../services/admin-ai-review.service', () => ({
+  assertStudentAiAccess: jest.fn(),
+}));
+
 const mockedTutorSessionService = tutorSessionService as jest.Mocked<typeof tutorSessionService>;
+const mockedAssertStudentAiAccess = assertStudentAiAccess as jest.MockedFunction<typeof assertStudentAiAccess>;
 
 describe('tutor session routes', () => {
   const app = createApp();
 
   beforeEach(() => {
     jest.clearAllMocks();
+    mockedAssertStudentAiAccess.mockResolvedValue(undefined);
+  });
+
+  it('blocks every legacy Tutor-session operation while a student is restricted', async () => {
+    mockedAssertStudentAiAccess.mockRejectedValue(
+      new AppError('Tutor access is temporarily restricted.', 403, true, 'AI_FEATURE_RESTRICTED'),
+    );
+
+    const response = await request(app).get('/api/v1/tutor-sessions/session-1');
+
+    expect(response.status).toBe(403);
+    expect(response.body.error.code).toBe('AI_FEATURE_RESTRICTED');
+    expect(mockedTutorSessionService.getTutorSessionDetail).not.toHaveBeenCalled();
   });
 
   it('rejects invalid create session payload', async () => {

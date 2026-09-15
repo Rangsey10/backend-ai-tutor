@@ -127,9 +127,48 @@ const seededQuizzes: InternalQuiz[] = [
   },
 ];
 const SUPPORTED_PRACTICE_TOPICS = new Set([
-  'linear-equations', 'linear_equation_one_variable', 'integer-arithmetic',
-  'integer_arithmetic', 'slope', 'slope-from-points', 'slope_from_points',
+  'linear-equations', 'linear-equations-g8', 'linear-equations-g9', 'linear-equations-g10',
+  'linear_equation_one_variable', 'integer-arithmetic',
+  'integer_arithmetic', 'slope', 'slope-from-points', 'slope_from_points', 'slope-from-two-points', 'slope_from_two_points',
+  'fractions-and-decimals', 'fraction_decimal_arithmetic', 'integer-fraction-decimal-arithmetic-g8',
+  'percentages', 'percentages-g8', 'simple_percentage_word_problem',
+  'straight-line-graphs', 'straight-line-graphs-g9', 'line_through_two_points',
+  'basic-quadratic-graphs', 'basic-quadratic-graphs-g10', 'basic_quadratic_graph',
 ]);
+
+// This is a product boundary: each learner-selected topic maps to exactly one
+// generator contract.  Do not use a broad keyword fallback here, because that
+// could offer linear-equation practice after an unsupported tutor session.
+const PRACTICE_PROBLEM_TYPE_BY_TOPIC: Record<string, string> = {
+  'linear-equations': 'linear_equation_one_variable',
+  'linear-equations-g8': 'linear_equation_one_variable',
+  'linear-equations-g9': 'linear_equation_one_variable',
+  'linear-equations-g10': 'linear_equation_one_variable',
+  'linear_equation_one_variable': 'linear_equation_one_variable',
+  'integer-arithmetic': 'integer_arithmetic',
+  'integer_arithmetic': 'integer_arithmetic',
+  'integer-fraction-decimal-arithmetic-g8': 'integer_arithmetic',
+  'fractions-and-decimals': 'fraction_decimal_arithmetic',
+  'fraction_decimal_arithmetic': 'fraction_decimal_arithmetic',
+  'percentages': 'simple_percentage_word_problem',
+  'percentages-g8': 'simple_percentage_word_problem',
+  'simple_percentage_word_problem': 'simple_percentage_word_problem',
+  'slope': 'slope_from_points',
+  'slope-from-points': 'slope_from_points',
+  'slope_from_points': 'slope_from_points',
+  'slope-from-two-points': 'slope_from_points',
+  'slope_from_two_points': 'slope_from_points',
+  'straight-line-graphs': 'line_through_two_points',
+  'straight-line-graphs-g9': 'line_through_two_points',
+  'line_through_two_points': 'line_through_two_points',
+  'basic-quadratic-graphs': 'basic_quadratic_graph',
+  'basic-quadratic-graphs-g10': 'basic_quadratic_graph',
+  'basic_quadratic_graph': 'basic_quadratic_graph',
+};
+
+function practiceProblemTypeForTopic(topicId: string): string | null {
+  return PRACTICE_PROBLEM_TYPE_BY_TOPIC[topicId.trim().toLowerCase()] ?? null;
+}
 
 const storedDemoAttempts = new Map<string, QuizAttemptResult>();
 
@@ -169,10 +208,15 @@ function asRecord(value: unknown): Record<string, unknown> | null {
   return typeof value === 'object' && value !== null ? value as Record<string, unknown> : null;
 }
 
-function privateQuizFromAi(payload: unknown, userId: string, input: CreateQuizRequestInput): InternalQuiz {
+function privateQuizFromAi(
+  payload: unknown,
+  userId: string,
+  input: CreateQuizRequestInput,
+  expectedProblemType: string,
+): InternalQuiz {
   const body = asRecord(payload);
   const questions = Array.isArray(body?.questions) ? body.questions : [];
-  if (!body || body.verified !== true || questions.length < 3 || questions.length > 5 ||
+  if (!body || body.verified !== true || String(body.problem_type) !== expectedProblemType || questions.length < 3 || questions.length > 5 ||
       String(body.topic ?? '').trim().toLowerCase() !== input.topic_id.trim().toLowerCase()) {
     throw new AppError('Generated practice did not pass validation', 502, true, 'INVALID_GENERATED_QUIZ');
   }
@@ -181,7 +225,11 @@ function privateQuizFromAi(payload: unknown, userId: string, input: CreateQuizRe
     const choices = Array.isArray(question?.choices) ? question.choices : [];
     const correct = typeof question?.correct_answer === 'string' ? question.correct_answer : '';
     const type = question?.type === 'short_answer' ? 'short_answer' : 'multiple_choice';
-    if (!question || !correct || !['linear_equation_one_variable', 'integer_arithmetic', 'slope_from_points'].includes(String(question.problem_type)) ||
+    if (!question || !correct || ![
+      'linear_equation_one_variable', 'integer_arithmetic',
+      'fraction_decimal_arithmetic', 'simple_percentage_word_problem',
+      'slope_from_points', 'line_through_two_points', 'basic_quadratic_graph',
+    ].includes(String(question.problem_type)) || String(question.problem_type) !== expectedProblemType ||
       (type === 'multiple_choice' && choices.length < 2)) {
       throw new AppError('Generated practice includes an unsupported question', 502, true, 'INVALID_GENERATED_QUIZ');
     }
@@ -209,7 +257,8 @@ function privateQuizFromAi(payload: unknown, userId: string, input: CreateQuizRe
 }
 
 async function generatePrivateQuiz(userId: string, input: CreateQuizRequestInput): Promise<InternalQuiz> {
-  if (!SUPPORTED_PRACTICE_TOPICS.has(input.topic_id.trim().toLowerCase())) {
+  const expectedProblemType = practiceProblemTypeForTopic(input.topic_id);
+  if (!SUPPORTED_PRACTICE_TOPICS.has(input.topic_id.trim().toLowerCase()) || !expectedProblemType) {
     throw new AppError('Targeted practice is not available for this topic yet', 422, true, 'PRACTICE_TOPIC_UNSUPPORTED');
   }
   let response: Response;
@@ -217,6 +266,7 @@ async function generatePrivateQuiz(userId: string, input: CreateQuizRequestInput
     response = await fetch(new URL('/api/v1/quiz/generate', env.aiService.baseUrl), {
       method: 'POST', headers: { 'content-type': 'application/json', ...internalTutorHeaders(userId) },
       body: JSON.stringify({ grade: parseGrade(input.grade_level_id), subject: input.subject_id, topic: input.topic_id,
+        problem_type: expectedProblemType,
         difficulty: difficultyForAi(input.difficulty_level), tutor_session_id: input.tutor_session_id,
         skill_tags: input.skill_tags, learning_goals: input.learning_goals, misconceptions: input.misconceptions,
         hint_count: input.hint_count, stuck_count: input.stuck_count,
@@ -228,7 +278,7 @@ async function generatePrivateQuiz(userId: string, input: CreateQuizRequestInput
   }
   const payload: unknown = await response.json().catch(() => null);
   if (!response.ok) throw new AppError('AI practice generation failed', 502, true, 'QUIZ_GENERATION_UNAVAILABLE');
-  return privateQuizFromAi(payload, userId, input);
+  return privateQuizFromAi(payload, userId, input, expectedProblemType);
 }
 
 async function persistPrivateQuiz(quiz: InternalQuiz): Promise<void> {

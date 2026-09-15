@@ -8,6 +8,7 @@ import {
 import { authenticate } from '../middlewares/auth';
 import { authorize } from '../middlewares/authorize';
 import { validate } from '../middlewares/validate';
+import { assertStudentAiAccess } from '../services/admin-ai-review.service';
 import {
   appendTutorSessionTurnRequestSchema,
   createTutorSessionRequestSchema,
@@ -18,6 +19,9 @@ const router = Router();
 
 router.use(authenticate);
 router.use(authorize('student'));
+router.use(async (req, _res, next) => {
+  try { await assertStudentAiAccess(req.user!.uid); next(); } catch (error) { next(error); }
+});
 
 router.post('/', validate({ body: createTutorSessionRequestSchema }), createSession);
 router.post(

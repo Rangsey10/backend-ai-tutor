@@ -5,6 +5,7 @@ import {
   logoutWithRefreshToken,
   requestPasswordReset,
   resetPassword,
+  rotateRefreshToken,
 } from '../services/auth.service';
 import { env } from '../config/env';
 import { getFirestore, isFirebaseInitialized } from '../config/firebase';
@@ -14,6 +15,39 @@ import { asyncHandler } from '../utils/asyncHandler';
 import { sendCreated, sendNoContent, sendSuccess } from '../utils/ApiResponse';
 import { AppError } from '../utils/AppError';
 import { generateOpaqueToken, signAccessToken } from '../utils/auth-tokens';
+
+const ACCESS_COOKIE = 'rean_admin_access';
+const REFRESH_COOKIE = 'rean_admin_refresh';
+const CSRF_COOKIE = 'rean_admin_csrf';
+function setAdminCookies(res: Response, data: { tokens: { access_token: string; refresh_token: string } }) {
+  const secure = env.isProductionLike;
+  // Production deployment must serve Admin and API through the same origin/BFF.
+  // Path `/` lets the Next server-side guard receive the HttpOnly access cookie.
+  const base = { secure, sameSite: 'strict' as const, path: '/', httpOnly: true };
+  res.cookie(ACCESS_COOKIE, data.tokens.access_token, { ...base, maxAge: env.auth.accessTokenTtlMinutes * 60_000 });
+  res.cookie(REFRESH_COOKIE, data.tokens.refresh_token, { ...base, maxAge: env.auth.refreshTokenTtlDays * 86_400_000 });
+  res.cookie(CSRF_COOKIE, generateOpaqueToken(24), { secure, sameSite: 'strict', path: '/', httpOnly: false, maxAge: env.auth.refreshTokenTtlDays * 86_400_000 });
+}
+function publicAuthResponse(data: ReturnType<typeof buildLocalAdminAuthResponse>) { return { user: data.user, expires_in_seconds: data.tokens.expires_in_seconds }; }
+function readCookie(req: Request, name: string): string | undefined { return req.header('cookie')?.split(';').map((part) => part.trim()).find((part) => part.startsWith(`${name}=`))?.slice(name.length + 1); }
+
+async function recordAdminAuthAudit(req: Request, action: string, actorId?: string): Promise<void> {
+  if (!isFirebaseInitialized()) return;
+  // Deliberately omit credentials, refresh tokens, reset tokens, and headers.
+  try {
+    await getFirestore().collection('admin_audit_logs').doc().set({
+      actor_id: actorId ?? null,
+      action,
+      resource_type: 'admin_auth',
+      resource_id: actorId ?? null,
+      ip_address: req.ip ?? null,
+      created_at: new Date(),
+    });
+  } catch {
+    // Authentication must remain available if the audit sink is temporarily
+    // unavailable; production monitoring should alert on this condition.
+  }
+}
 
 const localRefreshTokens = new Set<string>();
 const localPasswordResetTokens = new Set<string>();
@@ -67,7 +101,7 @@ export const loginAdmin = asyncHandler(async (req: Request, res: Response) => {
       throw new AppError('Invalid email or password', 401);
     }
 
-    sendSuccess(res, buildLocalAdminAuthResponse(), 'Admin login successful');
+    const response = buildLocalAdminAuthResponse(); setAdminCookies(res, response); await recordAdminAuthAudit(req, 'admin_auth.login', response.user.user_id); sendSuccess(res, publicAuthResponse(response), 'Admin login successful');
     return;
   }
 
@@ -79,7 +113,7 @@ export const loginAdmin = asyncHandler(async (req: Request, res: Response) => {
     throw new AppError('Admin access is required', 403);
   }
 
-  sendSuccess(res, data, 'Admin login successful');
+  setAdminCookies(res, data); await recordAdminAuthAudit(req, 'admin_auth.login', data.user.user_id); sendSuccess(res, { user: data.user, expires_in_seconds: data.tokens.expires_in_seconds }, 'Admin login successful');
 });
 
 export const loginAdminWithGoogle = asyncHandler(async (req: Request, res: Response) => {
@@ -89,7 +123,7 @@ export const loginAdminWithGoogle = asyncHandler(async (req: Request, res: Respo
 
   const { ipAddress, userAgent } = extractClientMetadata(req);
   const data = await loginAdminWithFirebaseIdToken(req.body.id_token, ipAddress, userAgent);
-  sendSuccess(res, data, 'Admin Google login successful');
+  setAdminCookies(res, data); await recordAdminAuthAudit(req, 'admin_auth.google_login', data.user.user_id); sendSuccess(res, { user: data.user, expires_in_seconds: data.tokens.expires_in_seconds }, 'Admin Google login successful');
 });
 
 export const registerAdmin = asyncHandler(async (req: Request, res: Response) => {
@@ -103,36 +137,57 @@ export const registerAdmin = asyncHandler(async (req: Request, res: Response) =>
   localRefreshTokens.clear();
   localPasswordResetTokens.clear();
 
-  sendCreated(res, buildLocalAdminAuthResponse(), 'Local admin registered successfully');
+  const response = buildLocalAdminAuthResponse();
+  setAdminCookies(res, response);
+  await recordAdminAuthAudit(req, 'admin_auth.register', response.user.user_id); sendCreated(res, publicAuthResponse(response), 'Local admin registered successfully');
 });
 
 export const logoutAdmin = asyncHandler(async (req: Request, res: Response) => {
+  const refreshToken = readCookie(req, REFRESH_COOKIE) ?? req.body.refresh_token;
   if (shouldUseLocalAdminAuth()) {
-    localRefreshTokens.delete(req.body.refresh_token);
-    sendNoContent(res);
+    localRefreshTokens.delete(refreshToken);
+    res.clearCookie(ACCESS_COOKIE, { path: '/' }); res.clearCookie(REFRESH_COOKIE, { path: '/' }); res.clearCookie(CSRF_COOKIE, { path: '/' });
+    await recordAdminAuthAudit(req, 'admin_auth.logout', 'local-admin'); sendNoContent(res);
     return;
   }
 
-  await logoutWithRefreshToken(req.body.refresh_token);
+  await logoutWithRefreshToken(refreshToken);
+  await recordAdminAuthAudit(req, 'admin_auth.logout');
+  res.clearCookie(ACCESS_COOKIE, { path: '/' }); res.clearCookie(REFRESH_COOKIE, { path: '/' }); res.clearCookie(CSRF_COOKIE, { path: '/' });
   sendNoContent(res);
+});
+
+export const refreshAdminSession = asyncHandler(async (req: Request, res: Response) => {
+  const refreshToken = readCookie(req, REFRESH_COOKIE);
+  if (!refreshToken) throw new AppError('Admin refresh session not found', 401);
+  if (shouldUseLocalAdminAuth()) {
+    if (!localRefreshTokens.delete(refreshToken)) throw new AppError('Admin refresh session is expired', 401);
+    const data = buildLocalAdminAuthResponse();
+    setAdminCookies(res, data);
+    await recordAdminAuthAudit(req, 'admin_auth.refresh', data.user.user_id); sendSuccess(res, publicAuthResponse(data), 'Admin session refreshed');
+    return;
+  }
+  const data = await rotateRefreshToken(refreshToken, req.ip, req.header('user-agent'));
+  if (normalizeUserRole(data.user.role) !== 'admin') throw new AppError('Admin access is required', 403);
+  setAdminCookies(res, data); await recordAdminAuthAudit(req, 'admin_auth.refresh', data.user.user_id); sendSuccess(res, { user: data.user, expires_in_seconds: data.tokens.expires_in_seconds }, 'Admin session refreshed');
 });
 
 export const requestAdminPasswordReset = asyncHandler(async (req: Request, res: Response) => {
   if (shouldUseLocalAdminAuth()) {
     const email = String(req.body.email ?? '').trim().toLowerCase();
     if (email !== localAdminEmail.toLowerCase()) {
-      sendSuccess(res, {}, 'If the admin account exists, a reset token has been generated');
+      await recordAdminAuthAudit(req, 'admin_auth.password_reset_requested'); sendSuccess(res, {}, 'If the admin account exists, a reset token has been generated');
       return;
     }
 
     const resetToken = generateOpaqueToken();
     localPasswordResetTokens.add(resetToken);
-    sendSuccess(res, { reset_token: resetToken }, 'If the admin account exists, a reset token has been generated');
+    await recordAdminAuthAudit(req, 'admin_auth.password_reset_requested', 'local-admin'); sendSuccess(res, { reset_token: resetToken }, 'If the admin account exists, a reset token has been generated');
     return;
   }
 
   const data = await requestPasswordReset(req.body.email);
-  sendSuccess(res, data, 'If the admin account exists, a reset token has been generated');
+  await recordAdminAuthAudit(req, 'admin_auth.password_reset_requested'); sendSuccess(res, data, 'If the admin account exists, a reset token has been generated');
 });
 
 export const confirmAdminPasswordReset = asyncHandler(async (req: Request, res: Response) => {
@@ -144,11 +199,12 @@ export const confirmAdminPasswordReset = asyncHandler(async (req: Request, res: 
     localPasswordResetTokens.delete(req.body.token);
     localAdminPassword = req.body.password;
     localRefreshTokens.clear();
-    sendNoContent(res);
+    await recordAdminAuthAudit(req, 'admin_auth.password_reset_confirmed', 'local-admin'); sendNoContent(res);
     return;
   }
 
   await resetPassword(req.body.token, req.body.password);
+  await recordAdminAuthAudit(req, 'admin_auth.password_reset_confirmed');
   sendNoContent(res);
 });
 

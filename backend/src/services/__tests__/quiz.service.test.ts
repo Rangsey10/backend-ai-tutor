@@ -78,6 +78,7 @@ describe('quiz.service', () => {
       json: async () => ({
         verified: true,
         topic: 'slope',
+        problem_type: 'slope_from_points',
         metadata: { generator: 'test' },
         questions: [1, 2, 3].map((index) => ({
           id: `slope-${index}`,
@@ -103,6 +104,32 @@ describe('quiz.service', () => {
       expect([...stored.values()][0]).toMatchObject({
         user_id: 'student-a', tutor_session_id: 'tutor-session-1',
       });
+    } finally {
+      global.fetch = originalFetch;
+    }
+  });
+
+  it('rejects a generated quiz that changes the requested practice topic', async () => {
+    mockedGetFirestore.mockReturnValue({
+      collection: jest.fn(() => ({ doc: () => ({ set: jest.fn() }) })),
+    } as never);
+    const originalFetch = global.fetch;
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        verified: true,
+        topic: 'percentages',
+        problem_type: 'linear_equation_one_variable',
+        questions: [],
+      }),
+    }) as never;
+
+    try {
+      await expect(createOrRetrieveQuiz('student-a', {
+        subject_id: 'math', topic_id: 'percentages', grade_level_id: 'grade-8',
+        difficulty_level: 'beginner', skill_tags: [], learning_goals: [], misconceptions: [],
+        hint_count: 0, stuck_count: 0, verification_results: [], verification_evidence: [],
+      })).rejects.toMatchObject({ code: 'INVALID_GENERATED_QUIZ' });
     } finally {
       global.fetch = originalFetch;
     }

@@ -1,10 +1,28 @@
-import { cert, initializeApp } from 'firebase-admin/app';
-import { getAuth as getAdminAuth } from 'firebase-admin/auth';
-import { getFirestore as getAdminFirestore } from 'firebase-admin/firestore';
+import type { Auth } from 'firebase-admin/auth';
+import type { Firestore } from 'firebase-admin/firestore';
 import { env } from './env';
 import { logger } from '../utils/logger';
 
 let initialized = false;
+
+// Firebase Auth currently reaches an ESM-only dependency. Loading it lazily
+// keeps route/unit tests independent of that runtime implementation while the
+// production server still loads the official Admin SDK when authentication is
+// actually required.
+function firebaseAppSdk(): typeof import('firebase-admin/app') {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  return require('firebase-admin/app') as typeof import('firebase-admin/app');
+}
+
+function firebaseAuthSdk(): typeof import('firebase-admin/auth') {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  return require('firebase-admin/auth') as typeof import('firebase-admin/auth');
+}
+
+function firebaseFirestoreSdk(): typeof import('firebase-admin/firestore') {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  return require('firebase-admin/firestore') as typeof import('firebase-admin/firestore');
+}
 
 /** True only after Firebase Admin has been configured with credentials or an emulator. */
 export function isFirebaseInitialized(): boolean {
@@ -15,7 +33,7 @@ export function initFirebase(): void {
   if (initialized) return;
 
   if (env.firebase.firestoreEmulatorHost && env.firebase.projectId) {
-    initializeApp({
+    firebaseAppSdk().initializeApp({
       projectId: env.firebase.projectId,
     });
     initialized = true;
@@ -34,8 +52,8 @@ export function initFirebase(): void {
     return;
   }
 
-  initializeApp({
-    credential: cert({
+  firebaseAppSdk().initializeApp({
+    credential: firebaseAppSdk().cert({
       projectId: env.firebase.projectId,
       clientEmail: env.firebase.clientEmail,
       privateKey: env.firebase.privateKey,
@@ -46,18 +64,18 @@ export function initFirebase(): void {
   logger.info('Firebase Admin initialized');
 }
 
-export function getFirestore() {
+export function getFirestore(): Firestore {
   if (!initialized) initFirebase();
   if (!initialized) {
     throw new Error('Firebase Admin is not initialized. Add Firebase credentials or enable a local fallback path.');
   }
-  return getAdminFirestore();
+  return firebaseFirestoreSdk().getFirestore();
 }
 
-export function getAuth() {
+export function getAuth(): Auth {
   if (!initialized) initFirebase();
   if (!initialized) {
     throw new Error('Firebase Admin is not initialized. Add Firebase credentials or enable a local fallback path.');
   }
-  return getAdminAuth();
+  return firebaseAuthSdk().getAuth();
 }

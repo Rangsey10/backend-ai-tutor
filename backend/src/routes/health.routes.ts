@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { env } from '../config/env';
 import { isFirebaseInitialized } from '../config/firebase';
+import { publicMetrics } from '../services/observability.service';
 
 const router = Router();
 
@@ -43,6 +44,23 @@ router.get('/', async (_req: Request, res: Response) => {
     dependencies: { firebase, visual_tutor_ai: visualTutorAi },
     timestamp: new Date().toISOString(),
   });
+});
+
+router.get('/metrics', (req: Request, res: Response) => {
+  // Scrape endpoint is service-authenticated; operational counters are not a
+  // public student API.
+  if (!env.aiService.visualTutorInternalToken || req.header('x-visual-tutor-internal-token') !== env.aiService.visualTutorInternalToken) {
+    res.status(401).json({ message: 'Unauthorized' });
+    return;
+  }
+  res.json({ service: 'backend-api', metrics: publicMetrics() });
+});
+
+router.get('/ready', async (_req: Request, res: Response) => {
+  const firebase = isFirebaseInitialized() ? 'healthy' : 'unavailable';
+  const visualTutorAi = await getAiServiceState();
+  const ready = firebase === 'healthy' && visualTutorAi !== 'unavailable';
+  res.status(ready ? 200 : 503).json({ status: ready ? 'ready' : 'not_ready', dependencies: { firebase, visual_tutor_ai: visualTutorAi } });
 });
 
 export default router;

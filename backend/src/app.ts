@@ -2,7 +2,7 @@ import express, { Application } from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import routes from './routes';
-import { requestLogger } from './middlewares/requestLogger';
+import { correlationId, requestLogger } from './middlewares/requestLogger';
 import { errorHandler, notFoundHandler } from './middlewares/errorHandler';
 import { env } from './config/env';
 
@@ -28,6 +28,7 @@ export function createApp(): Application {
   );
   app.use(express.json({ limit: '1mb' }));
   app.use(express.urlencoded({ extended: true, limit: '1mb' }));
+  app.use(correlationId);
   app.use(requestLogger);
 
   // API routes

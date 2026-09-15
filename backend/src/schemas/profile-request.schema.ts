@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 const explanationLevels = ['beginner', 'intermediate', 'advanced'] as const;
+const preferredLanguages = ['en', 'km'] as const;
 
 export const createProfileRequestSchema = z
   .object({
@@ -10,6 +11,7 @@ export const createProfileRequestSchema = z
     explanation_level: z.enum(explanationLevels),
     learning_goal: z.string().min(1).nullable(),
     learning_goals: z.array(z.string().min(1)).optional(),
+    preferred_language: z.enum(preferredLanguages).optional(),
     subject_ids: z.array(z.string().min(1)).min(1),
   })
   .strict()
@@ -31,6 +33,7 @@ export const updateProfileRequestSchema = z
     explanation_level: z.enum(explanationLevels).optional(),
     learning_goal: z.string().min(1).nullable().optional(),
     learning_goals: z.array(z.string().min(1)).optional(),
+    preferred_language: z.enum(preferredLanguages).optional(),
     current_streak: z.number().int().nonnegative().optional(),
     longest_streak: z.number().int().nonnegative().optional(),
     total_learning_time: z.number().int().nonnegative().optional(),

@@ -10,8 +10,10 @@ import adminDashboardRoutes from './admin-dashboard.routes';
 import adminStudentsRoutes from './admin-students.routes';
 import adminSettingsRoutes from './admin-settings.routes';
 import adminCurriculumRoutes from './admin-curriculum.routes';
+import adminAiReviewRoutes from './admin-ai-review.routes';
 import tutorSessionRoutes from './tutor-session.routes';
 import progressRoutes from './progress.routes';
+import tutorReportRoutes from './tutor-report.routes';
 
 const router = Router();
 
@@ -26,9 +28,11 @@ router.use('/admin/dashboard', adminDashboardRoutes);
 router.use('/admin/students', adminStudentsRoutes);
 router.use('/admin/settings', adminSettingsRoutes);
 router.use('/admin/curriculum', adminCurriculumRoutes);
+router.use('/admin/ai-reviews', adminAiReviewRoutes);
 router.use('/tutor-sessions', tutorSessionRoutes);
 router.use('/tutor-sessions', tutorSessionRoutes);
 router.use('/progress', progressRoutes);
+router.use('/tutor/reports', tutorReportRoutes);
 
 // Future route groups will be mounted here as they're built:
 // router.use('/users', userRoutes);

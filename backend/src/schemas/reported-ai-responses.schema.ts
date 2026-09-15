@@ -1,29 +1,31 @@
 import { z } from 'zod';
 
-const reportTypes = [
-  'incorrect_answer',
-  'unclear_explanation',
-  'broken_visualization',
-  'repeated_response',
-  'inappropriate_content',
-  'unsupported_question',
-  'voice_issue',
+export const studentReportReasons = [
+  'incorrect_math',
+  'confusing_explanation',
+  'unsafe_unhelpful',
+  'visual_problem',
+  'other',
 ] as const;
 
-const verificationStatuses = ['pending', 'approved', 'rejected', 'reviewed'] as const;
+const reviewStatuses = ['pending', 'triaged', 'resolved', 'dismissed'] as const;
 
-export const createReportedAiResponseSchema = z.object({
-  student_profile_id: z.string().min(1),
+export const createStudentTutorReportSchema = z.object({
   tutor_session_id: z.string().min(1),
   tutor_turn_id: z.string().min(1),
-  report_type: z.enum(reportTypes),
-  description: z.string().min(1),
-  severity: z.string().min(1),
-  verification_status: z.enum(verificationStatuses).default('pending'),
-  assigned_admin_id: z.string().min(1).nullable().optional(),
-});
+  reason: z.enum(studentReportReasons),
+  details: z.string().trim().max(600).optional(),
+}).strict();
 
-export const updateReportedAiResponseSchema = createReportedAiResponseSchema.partial().strict();
+export const studentNotificationParamsSchema = z.object({ notificationId: z.string().trim().min(1).max(160) }).strict();
 
-export type CreateReportedAiResponseInput = z.infer<typeof createReportedAiResponseSchema>;
-export type UpdateReportedAiResponseInput = z.infer<typeof updateReportedAiResponseSchema>;
+// Review state is intentionally server/internal-only. No student route accepts
+// it, so a report cannot be self-approved or assigned from Flutter.
+export const internalTutorReportReviewSchema = z.object({
+  review_status: z.enum(reviewStatuses),
+  reviewer_id: z.string().min(1).max(256),
+  resolution_note: z.string().trim().max(600).optional(),
+}).strict();
+
+export type CreateStudentTutorReportInput = z.infer<typeof createStudentTutorReportSchema>;
+export type InternalTutorReportReviewInput = z.infer<typeof internalTutorReportReviewSchema>;

@@ -12,6 +12,7 @@ import {
   getTutorSessionsForUser,
   responseBelongsToUser,
   sendTutorTurn,
+  streamTutorTurn,
   scanTutorImage,
   transcribeTutorVoice,
   synthesizeTutorVoice,
@@ -21,11 +22,16 @@ import {
 import { AppError } from '../utils/AppError';
 import { asyncHandler } from '../utils/asyncHandler';
 import { logger } from '../utils/logger';
+import { assertStudentAiAccess, getStudentAiRestrictionStatus } from '../services/admin-ai-review.service';
 
 function requestId(req: Request): string {
   const header = req.header('x-request-id');
   return header && header.trim().length > 0 ? header : randomUUID();
 }
+
+export const getRestrictionStatus = asyncHandler(async (req: Request, res: Response) => {
+  res.status(200).json({ success: true, data: await getStudentAiRestrictionStatus(req.user!.uid) });
+});
 
 function withoutClientUserId<T extends Record<string, unknown>>(
   payload: T
@@ -37,6 +43,7 @@ function withoutClientUserId<T extends Record<string, unknown>>(
 }
 
 export const createSession = asyncHandler(async (req: Request, res: Response) => {
+  await assertStudentAiAccess(req.user!.uid);
   const response = await createTutorSession(
     req.user!.uid,
     withoutClientUserId(req.body) as CreateTutorSessionRequestInput,
@@ -85,6 +92,7 @@ export const getUserSessions = asyncHandler(async (req: Request, res: Response) 
 });
 
 export const sendTurn = asyncHandler(async (req: Request, res: Response) => {
+  await assertStudentAiAccess(req.user!.uid);
   const response = await sendTutorTurn(
     req.user!.uid,
     withoutClientUserId(req.body) as TutorTurnRequestInput,
@@ -96,7 +104,43 @@ export const sendTurn = asyncHandler(async (req: Request, res: Response) => {
   res.status(200).json(response);
 });
 
+/** Proxy a validated, authenticated SSE turn without exposing AI credentials. */
+export const streamTurn = asyncHandler(async (req: Request, res: Response) => {
+  await assertStudentAiAccess(req.user!.uid);
+  const upstream = await streamTutorTurn(
+    req.user!.uid,
+    withoutClientUserId(req.body) as TutorTurnRequestInput,
+    {
+      requestId: requestId(req),
+      sessionId: typeof req.body.session_id === 'string' ? req.body.session_id : undefined,
+      lastEventId: req.header('last-event-id')?.slice(0, 180),
+    }
+  );
+  res.status(200);
+  res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
+  res.setHeader('Cache-Control', 'no-store, no-transform');
+  res.setHeader('X-Accel-Buffering', 'no');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders();
+  const reader = upstream.body!.getReader();
+  let closed = false;
+  req.on('close', () => {
+    closed = true;
+    void reader.cancel();
+  });
+  try {
+    while (!closed) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (value) res.write(Buffer.from(value));
+    }
+  } finally {
+    if (!res.writableEnded) res.end();
+  }
+});
+
 export const scanProblem = asyncHandler(async (req: Request, res: Response) => {
+  await assertStudentAiAccess(req.user!.uid);
   if (!Buffer.isBuffer(req.body)) {
     throw new AppError('Upload an image file', 400, true, 'INVALID_IMAGE_UPLOAD');
   }
@@ -116,6 +160,7 @@ export const scanProblem = asyncHandler(async (req: Request, res: Response) => {
 });
 
 export const transcribeVoice = asyncHandler(async (req: Request, res: Response) => {
+  await assertStudentAiAccess(req.user!.uid);
   if (!Buffer.isBuffer(req.body))
     throw new AppError('Upload WAV audio', 400, true, 'INVALID_AUDIO_UPLOAD');
   const contentType = (req.header('content-type') ?? '').split(';')[0].trim().toLowerCase();
@@ -131,6 +176,7 @@ export const transcribeVoice = asyncHandler(async (req: Request, res: Response) 
 });
 
 export const synthesizeVoice = asyncHandler(async (req: Request, res: Response) => {
+  await assertStudentAiAccess(req.user!.uid);
   const text = typeof req.body?.text === 'string' ? req.body.text.trim() : '';
   const language = typeof req.body?.language === 'string' ? req.body.language.trim() : 'en';
   if (!text || text.length > 4000) {

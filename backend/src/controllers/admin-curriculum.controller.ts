@@ -57,8 +57,41 @@ type AdminTopic = {
   grade: string;
   subject: string;
   name: string;
+  khmer: string;
   code: string;
-  status: 'Active' | 'Inactive';
+  description: string;
+  learning_objectives: string[];
+  difficulty: 'Beginner' | 'Intermediate' | 'Advanced';
+  prerequisites: string[];
+  status: 'Draft' | 'Active' | 'Inactive' | 'Archived';
+  created_at: string | null;
+  updated_at: string | null;
+  created_by: string;
+  updated_by: string;
+};
+
+type TopicDocument = {
+  topic_id: string;
+  unit_id?: string | null;
+  grade_level_id: string;
+  subject_id: string;
+  grade_name?: string;
+  subject_name?: string;
+  topic_name: string;
+  khmer_name?: string | null;
+  topic_code: string;
+  description?: string | null;
+  learning_objective?: string | null;
+  learning_objectives?: string[];
+  difficulty_level?: 'beginner' | 'intermediate' | 'advanced';
+  prerequisites?: string[];
+  status?: 'draft' | 'active' | 'inactive' | 'archived';
+  grade_level_snapshot?: { grade_level_id: string; grade_name: string; grade_number: number } | null;
+  subject_snapshot?: { subject_id: string; subject_name: string; subject_code: string } | null;
+  created_at?: FirebaseFirestore.Timestamp;
+  updated_at?: FirebaseFirestore.Timestamp;
+  created_by?: string;
+  updated_by?: string;
 };
 
 type AdminContentKind = 'Formula' | 'Concept' | 'Example' | 'Exercise';
@@ -66,6 +99,7 @@ type AdminContentStatus = 'Published' | 'Draft';
 
 type CurriculumContentDocument = {
   content_id: string;
+  curriculum_version_id: string;
   kind: 'formula' | 'concept' | 'example' | 'exercise';
   grade_level_id: string;
   subject_id: string;
@@ -91,6 +125,7 @@ type CurriculumContentDocument = {
 type AdminCurriculumContent = {
   id: string;
   content_id: string;
+  curriculum_version_id: string;
   kind: AdminContentKind;
   grade_level_id: string;
   subject_id: string;
@@ -136,6 +171,22 @@ function normalizeSubjectStatus(value: unknown, fallback: SubjectDocument['statu
   return 'active';
 }
 
+function normalizeTopicStatus(value: unknown, fallback: NonNullable<TopicDocument['status']> = 'draft'): NonNullable<TopicDocument['status']> {
+  if (typeof value !== 'string') return fallback;
+  const normalized = value.toLowerCase();
+  if (normalized === 'active' || normalized === 'inactive' || normalized === 'archived' || normalized === 'draft') {
+    return normalized;
+  }
+  throw new AppError('Topic status must be draft, active, inactive, or archived', 400);
+}
+
+function normalizeTopicDifficulty(value: unknown, fallback: NonNullable<TopicDocument['difficulty_level']> = 'beginner'): NonNullable<TopicDocument['difficulty_level']> {
+  if (typeof value !== 'string') return fallback;
+  const normalized = value.toLowerCase();
+  if (normalized === 'beginner' || normalized === 'intermediate' || normalized === 'advanced') return normalized;
+  throw new AppError('Topic difficulty must be beginner, intermediate, or advanced', 400);
+}
+
 function normalizeContentKind(value: unknown): CurriculumContentDocument['kind'] {
   if (typeof value !== 'string') throw new AppError('Content type is required', 400);
   const normalized = value.toLowerCase();
@@ -148,7 +199,10 @@ function normalizeContentKind(value: unknown): CurriculumContentDocument['kind']
 
 function normalizeContentStatus(value: unknown, fallback: CurriculumContentDocument['status'] = 'draft'): CurriculumContentDocument['status'] {
   if (typeof value !== 'string') return fallback;
-  return value.toLowerCase() === 'published' ? 'published' : 'draft';
+  if (value.toLowerCase() === 'published') {
+    throw new AppError('Content is published only through an approved curriculum version', 400);
+  }
+  return 'draft';
 }
 
 function readStringArray(value: unknown): string[] {
@@ -200,6 +254,22 @@ function makeSubjectId(gradeLevelId: string, subjectCode: string, subjectName: s
   return `${gradeLevelId}-${slugify(subjectCode || subjectName)}`;
 }
 
+function makeTopicId(subjectId: string, topicCode: string, topicName: string): string {
+  return `${subjectId}-${slugify(topicCode || topicName)}`;
+}
+
+function makeTopicCodeReservationId(subjectId: string, topicCode: string): string {
+  return `${encodeURIComponent(subjectId)}--${slugify(topicCode)}`;
+}
+
+function timestampToIso(value: unknown): string | null {
+  if (value instanceof Timestamp) return value.toDate().toISOString();
+  if (value && typeof (value as { toDate?: unknown }).toDate === 'function') {
+    return ((value as { toDate: () => Date }).toDate()).toISOString();
+  }
+  return null;
+}
+
 function toAdminGradeLevel(grade: GradeLevel): AdminGradeLevel {
   return {
     id: grade.grade_level_id,
@@ -233,7 +303,7 @@ function toAdminSubject(subject: SubjectDocument): AdminSubject {
   };
 }
 
-function toAdminTopic(topic: FirebaseFirestore.DocumentData): AdminTopic {
+function toAdminTopic(topic: TopicDocument): AdminTopic {
   const gradeSnapshot = topic.grade_level_snapshot as { grade_name?: string } | null | undefined;
   const subjectSnapshot = topic.subject_snapshot as { subject_name?: string } | null | undefined;
   return {
@@ -244,8 +314,29 @@ function toAdminTopic(topic: FirebaseFirestore.DocumentData): AdminTopic {
     grade: String(gradeSnapshot?.grade_name ?? topic.grade_name ?? topic.grade_level_id ?? ''),
     subject: String(subjectSnapshot?.subject_name ?? topic.subject_name ?? topic.subject_id ?? ''),
     name: String(topic.topic_name ?? ''),
+    khmer: String(topic.khmer_name ?? topic.topic_name ?? ''),
     code: String(topic.topic_code ?? ''),
-    status: topic.status === 'inactive' ? 'Inactive' : 'Active',
+    description: String(topic.description ?? ''),
+    learning_objectives: topic.learning_objectives ?? (topic.learning_objective ? [topic.learning_objective] : []),
+    difficulty:
+      topic.difficulty_level === 'advanced'
+        ? 'Advanced'
+        : topic.difficulty_level === 'intermediate'
+          ? 'Intermediate'
+          : 'Beginner',
+    prerequisites: topic.prerequisites ?? [],
+    status:
+      topic.status === 'archived'
+        ? 'Archived'
+        : topic.status === 'inactive'
+          ? 'Inactive'
+          : topic.status === 'active'
+            ? 'Active'
+            : 'Draft',
+    created_at: timestampToIso(topic.created_at),
+    updated_at: timestampToIso(topic.updated_at),
+    created_by: String(topic.created_by ?? ''),
+    updated_by: String(topic.updated_by ?? ''),
   };
 }
 
@@ -253,6 +344,7 @@ function toAdminContent(content: CurriculumContentDocument): AdminCurriculumCont
   return {
     id: content.content_id,
     content_id: content.content_id,
+    curriculum_version_id: content.curriculum_version_id ?? '',
     kind:
       content.kind === 'formula'
         ? 'Formula'
@@ -279,6 +371,31 @@ function toAdminContent(content: CurriculumContentDocument): AdminCurriculumCont
     tags: content.tags ?? [],
     status: content.status === 'published' ? 'Published' : 'Draft',
   };
+}
+
+async function requireEditableCurriculumVersion(curriculumVersionId: string, gradeLevelId: string, subjectId: string): Promise<void> {
+  const versionDoc = await getFirestore().collection('curriculum_versions').doc(curriculumVersionId).get();
+  if (!versionDoc.exists) throw new AppError('Curriculum version not found', 404);
+  const version = versionDoc.data() as { grade_level_id?: string; subject_id?: string; status?: string };
+  if (version.grade_level_id !== gradeLevelId || version.subject_id !== subjectId) {
+    throw new AppError('Curriculum version does not match this grade and subject', 400);
+  }
+  if (version.status !== 'draft') {
+    throw new AppError('Published or in-review curriculum versions are immutable; create a new draft version', 409);
+  }
+}
+
+async function writeCurriculumAudit(req: Request, action: string, contentId: string, curriculumVersionId: string): Promise<void> {
+  const now = Timestamp.now();
+  await getFirestore().collection('admin_audit_logs').doc(`${contentId}-${action}-${now.toMillis()}`).set({
+    audit_id: `${contentId}-${action}-${now.toMillis()}`,
+    actor_id: req.user!.userId,
+    action,
+    resource_type: 'curriculum_content',
+    resource_id: contentId,
+    curriculum_version_id: curriculumVersionId,
+    created_at: now,
+  });
 }
 
 async function ensureUniqueGradeNumber(
@@ -329,6 +446,19 @@ async function ensureUniqueSubjectCode(
   if (duplicatedDoc) {
     throw new AppError(`Subject code ${subjectCode} already exists for this grade`, 409);
   }
+}
+
+async function requireSubjectForGrade(subjectId: string, gradeLevelId: string): Promise<SubjectDocument> {
+  const subjectDoc = await getFirestore().collection('subjects').doc(subjectId).get();
+  if (!subjectDoc.exists) {
+    throw new AppError('Subject not found', 404);
+  }
+
+  const subject = { ...(subjectDoc.data() as SubjectDocument), subject_id: subjectDoc.id };
+  if (subject.grade_level_id !== gradeLevelId) {
+    throw new AppError('Subject does not belong to the selected grade level', 400);
+  }
+  return subject;
 }
 
 export const getAdminGrades = asyncHandler(async (req: Request, res: Response) => {
@@ -559,11 +689,206 @@ export const getAdminTopics = asyncHandler(async (req: Request, res: Response) =
 
   const snapshot = await query.get();
   const topics = snapshot.docs
-    .map((doc) => toAdminTopic({ ...doc.data(), topic_id: doc.id }))
+    .map((doc) => toAdminTopic({ ...(doc.data() as TopicDocument), topic_id: doc.id }))
     .filter((topic) => topic.topic_id && topic.name)
     .sort((left, right) => left.name.localeCompare(right.name));
 
   sendSuccess(res, { topics }, 'Topics loaded');
+});
+
+export const createAdminTopic = asyncHandler(async (req: Request, res: Response) => {
+  assertAdmin(req);
+
+  const gradeLevelId = readRequiredString(req.body?.grade_level_id, 'Grade level id');
+  const subjectId = readRequiredString(req.body?.subject_id, 'Subject id');
+  const [grade, subject] = await Promise.all([
+    requireGradeById(gradeLevelId),
+    requireSubjectForGrade(subjectId, gradeLevelId),
+  ]);
+  const topicName = readRequiredString(req.body?.name ?? req.body?.topic_name, 'Topic name');
+  const topicCode = readRequiredString(req.body?.code ?? req.body?.topic_code, 'Topic code').toUpperCase();
+  const topicId = makeTopicId(subjectId, topicCode, topicName);
+
+  const topicRef = getFirestore().collection('topics').doc(topicId);
+
+  const now = Timestamp.now();
+  const learningObjectives = readStringArray(req.body?.learning_objectives ?? req.body?.learningObjectives);
+  const topic: TopicDocument = {
+    topic_id: topicId,
+    unit_id: readOptionalString(req.body?.unit_id),
+    grade_level_id: gradeLevelId,
+    subject_id: subjectId,
+    grade_name: grade.grade_name,
+    subject_name: subject.subject_name,
+    topic_name: topicName,
+    khmer_name: readOptionalString(req.body?.khmer ?? req.body?.khmer_name),
+    topic_code: topicCode,
+    description: readOptionalString(req.body?.description),
+    learning_objective: learningObjectives[0] ?? readOptionalString(req.body?.learning_objective),
+    learning_objectives: learningObjectives,
+    difficulty_level: normalizeTopicDifficulty(req.body?.difficulty ?? req.body?.difficulty_level),
+    prerequisites: readStringArray(req.body?.prerequisites),
+    status: normalizeTopicStatus(req.body?.status),
+    grade_level_snapshot: {
+      grade_level_id: grade.grade_level_id,
+      grade_name: grade.grade_name,
+      grade_number: grade.grade_number,
+    },
+    subject_snapshot: {
+      subject_id: subject.subject_id,
+      subject_name: subject.subject_name,
+      subject_code: subject.subject_code,
+    },
+    created_at: now,
+    updated_at: now,
+    created_by: req.user!.userId,
+    updated_by: req.user!.userId,
+  };
+
+  const firestore = getFirestore();
+  await firestore.runTransaction(async (transaction) => {
+    const reservationRef = firestore.collection('topic_code_reservations')
+      .doc(makeTopicCodeReservationId(subjectId, topicCode));
+    const [reservationDoc, duplicateSnapshot, existingTopicDoc] = await Promise.all([
+      transaction.get(reservationRef),
+      transaction.get(firestore.collection('topics').where('subject_id', '==', subjectId)),
+      transaction.get(topicRef),
+    ]);
+    if (reservationDoc.exists || duplicateSnapshot.docs.some((doc) => String((doc.data() as TopicDocument).topic_code ?? '').toUpperCase() === topicCode)) {
+      throw new AppError(`Topic code ${topicCode} already exists for this subject`, 409);
+    }
+    if (existingTopicDoc.exists) {
+      throw new AppError('A topic with this name or code already exists for this subject', 409);
+    }
+    transaction.set(reservationRef, {
+      subject_id: subjectId,
+      topic_code: topicCode,
+      topic_id: topicId,
+      created_at: now,
+      updated_at: now,
+    });
+    transaction.set(topicRef, topic);
+  });
+  sendCreated(res, toAdminTopic(topic), 'Topic created');
+});
+
+export const updateAdminTopic = asyncHandler(async (req: Request, res: Response) => {
+  assertAdmin(req);
+
+  const topicId = readRequiredString(req.params.topicId, 'Topic id');
+  const topicRef = getFirestore().collection('topics').doc(topicId);
+  const topicDoc = await topicRef.get();
+  if (!topicDoc.exists) {
+    throw new AppError('Topic not found', 404);
+  }
+
+  const currentTopic = { ...(topicDoc.data() as TopicDocument), topic_id: topicDoc.id };
+  const gradeLevelId = req.body?.grade_level_id !== undefined
+    ? readRequiredString(req.body.grade_level_id, 'Grade level id')
+    : currentTopic.grade_level_id;
+  const subjectId = req.body?.subject_id !== undefined
+    ? readRequiredString(req.body.subject_id, 'Subject id')
+    : currentTopic.subject_id;
+  const [grade, subject] = await Promise.all([
+    requireGradeById(gradeLevelId),
+    requireSubjectForGrade(subjectId, gradeLevelId),
+  ]);
+  const topicName = req.body?.name !== undefined || req.body?.topic_name !== undefined
+    ? readRequiredString(req.body?.name ?? req.body?.topic_name, 'Topic name')
+    : currentTopic.topic_name;
+  const topicCode = req.body?.code !== undefined || req.body?.topic_code !== undefined
+    ? readRequiredString(req.body?.code ?? req.body?.topic_code, 'Topic code').toUpperCase()
+    : currentTopic.topic_code;
+
+  const learningObjectives = req.body?.learning_objectives !== undefined || req.body?.learningObjectives !== undefined
+    ? readStringArray(req.body?.learning_objectives ?? req.body?.learningObjectives)
+    : currentTopic.learning_objectives ?? (currentTopic.learning_objective ? [currentTopic.learning_objective] : []);
+  const updatedTopic: TopicDocument = {
+    ...currentTopic,
+    grade_level_id: gradeLevelId,
+    subject_id: subjectId,
+    grade_name: grade.grade_name,
+    subject_name: subject.subject_name,
+    topic_name: topicName,
+    topic_code: topicCode,
+    khmer_name: req.body?.khmer !== undefined || req.body?.khmer_name !== undefined
+      ? readOptionalString(req.body?.khmer ?? req.body?.khmer_name)
+      : currentTopic.khmer_name ?? null,
+    description: req.body?.description !== undefined ? readOptionalString(req.body.description) : currentTopic.description ?? null,
+    learning_objective: learningObjectives[0] ?? null,
+    learning_objectives: learningObjectives,
+    difficulty_level: req.body?.difficulty !== undefined || req.body?.difficulty_level !== undefined
+      ? normalizeTopicDifficulty(req.body?.difficulty ?? req.body?.difficulty_level)
+      : currentTopic.difficulty_level ?? 'beginner',
+    prerequisites: req.body?.prerequisites !== undefined ? readStringArray(req.body.prerequisites) : currentTopic.prerequisites ?? [],
+    status: normalizeTopicStatus(req.body?.status, currentTopic.status ?? 'draft'),
+    grade_level_snapshot: {
+      grade_level_id: grade.grade_level_id,
+      grade_name: grade.grade_name,
+      grade_number: grade.grade_number,
+    },
+    subject_snapshot: {
+      subject_id: subject.subject_id,
+      subject_name: subject.subject_name,
+      subject_code: subject.subject_code,
+    },
+    updated_at: Timestamp.now(),
+    updated_by: req.user!.userId,
+  };
+
+  const firestore = getFirestore();
+  await firestore.runTransaction(async (transaction) => {
+    const reservationRef = firestore.collection('topic_code_reservations')
+      .doc(makeTopicCodeReservationId(subjectId, topicCode));
+    const oldReservationRef = firestore.collection('topic_code_reservations')
+      .doc(makeTopicCodeReservationId(currentTopic.subject_id, currentTopic.topic_code));
+    const [reservationDoc, duplicateSnapshot, oldReservationDoc] = await Promise.all([
+      transaction.get(reservationRef),
+      transaction.get(firestore.collection('topics').where('subject_id', '==', subjectId)),
+      transaction.get(oldReservationRef),
+    ]);
+    const duplicate = duplicateSnapshot.docs.some((doc) => doc.id !== topicId && String((doc.data() as TopicDocument).topic_code ?? '').toUpperCase() === topicCode);
+    if (duplicate || (reservationDoc.exists && (reservationDoc.data() as { topic_id?: string }).topic_id !== topicId)) {
+      throw new AppError(`Topic code ${topicCode} already exists for this subject`, 409);
+    }
+    if (oldReservationRef.path !== reservationRef.path && oldReservationDoc.exists && (oldReservationDoc.data() as { topic_id?: string }).topic_id === topicId) {
+      transaction.delete(oldReservationRef);
+    }
+    transaction.set(reservationRef, {
+      subject_id: subjectId,
+      topic_code: topicCode,
+      topic_id: topicId,
+      created_at: (reservationDoc.data() as { created_at?: FirebaseFirestore.Timestamp } | undefined)?.created_at ?? Timestamp.now(),
+      updated_at: Timestamp.now(),
+    }, { merge: true });
+    transaction.set(topicRef, updatedTopic, { merge: true });
+  });
+  sendSuccess(res, toAdminTopic(updatedTopic), 'Topic updated');
+});
+
+export const updateAdminTopicStatus = asyncHandler(async (req: Request, res: Response) => {
+  assertAdmin(req);
+
+  const topicId = readRequiredString(req.params.topicId, 'Topic id');
+  const requestedStatus = normalizeTopicStatus(req.body?.status);
+  if (requestedStatus !== 'inactive' && requestedStatus !== 'archived') {
+    throw new AppError('This endpoint only supports inactive or archived status', 400);
+  }
+
+  const topicRef = getFirestore().collection('topics').doc(topicId);
+  const topicDoc = await topicRef.get();
+  if (!topicDoc.exists) {
+    throw new AppError('Topic not found', 404);
+  }
+  const topic = { ...(topicDoc.data() as TopicDocument), topic_id: topicDoc.id };
+  const updatedTopic: TopicDocument = {
+    ...topic,
+    status: requestedStatus,
+    updated_at: Timestamp.now(),
+    updated_by: req.user!.userId,
+  };
+  await topicRef.set(updatedTopic, { merge: true });
+  sendSuccess(res, toAdminTopic(updatedTopic), requestedStatus === 'archived' ? 'Topic archived' : 'Topic deactivated');
 });
 
 export const getAdminContent = asyncHandler(async (req: Request, res: Response) => {
@@ -593,14 +918,17 @@ export const createAdminContent = asyncHandler(async (req: Request, res: Respons
   const gradeLevelId = readRequiredString(req.body?.grade_level_id, 'Grade level id');
   const subjectId = readRequiredString(req.body?.subject_id, 'Subject id');
   const topicId = readRequiredString(req.body?.topic_id, 'Topic id');
+  const curriculumVersionId = readRequiredString(req.body?.curriculum_version_id, 'Curriculum version id');
   const gradeName = readRequiredString(req.body?.grade, 'Grade name');
   const subjectName = readRequiredString(req.body?.subject, 'Subject name');
   const topicName = readRequiredString(req.body?.lesson, 'Lesson name');
   const contentId = `${kind}-${topicId}-${slugify(String(req.body?.expression ?? req.body?.title ?? 'content'))}-${Date.now()}`;
   const now = Timestamp.now();
+  await requireEditableCurriculumVersion(curriculumVersionId, gradeLevelId, subjectId);
 
   const content: CurriculumContentDocument = {
     content_id: contentId,
+    curriculum_version_id: curriculumVersionId,
     kind,
     grade_level_id: gradeLevelId,
     subject_id: subjectId,
@@ -624,6 +952,7 @@ export const createAdminContent = asyncHandler(async (req: Request, res: Respons
   };
 
   await getFirestore().collection('admin_curriculum_content').doc(contentId).set(content);
+  await writeCurriculumAudit(req, 'curriculum_content.created', contentId, curriculumVersionId);
   sendCreated(res, toAdminContent(content), 'Curriculum content created');
 });
 
@@ -638,11 +967,18 @@ export const updateAdminContent = asyncHandler(async (req: Request, res: Respons
   }
 
   const currentContent = { ...(contentDoc.data() as CurriculumContentDocument), content_id: contentDoc.id };
+  const nextGradeLevelId = req.body?.grade_level_id !== undefined ? readRequiredString(req.body.grade_level_id, 'Grade level id') : currentContent.grade_level_id;
+  const nextSubjectId = req.body?.subject_id !== undefined ? readRequiredString(req.body.subject_id, 'Subject id') : currentContent.subject_id;
+  const curriculumVersionId = req.body?.curriculum_version_id !== undefined
+    ? readRequiredString(req.body.curriculum_version_id, 'Curriculum version id')
+    : currentContent.curriculum_version_id;
+  await requireEditableCurriculumVersion(curriculumVersionId, nextGradeLevelId, nextSubjectId);
   const updatedContent: CurriculumContentDocument = {
     ...currentContent,
+    curriculum_version_id: curriculumVersionId,
     kind: req.body?.kind !== undefined ? normalizeContentKind(req.body.kind) : currentContent.kind,
-    grade_level_id: req.body?.grade_level_id !== undefined ? readRequiredString(req.body.grade_level_id, 'Grade level id') : currentContent.grade_level_id,
-    subject_id: req.body?.subject_id !== undefined ? readRequiredString(req.body.subject_id, 'Subject id') : currentContent.subject_id,
+    grade_level_id: nextGradeLevelId,
+    subject_id: nextSubjectId,
     topic_id: req.body?.topic_id !== undefined ? readRequiredString(req.body.topic_id, 'Topic id') : currentContent.topic_id,
     grade_name: req.body?.grade !== undefined ? readRequiredString(req.body.grade, 'Grade name') : currentContent.grade_name,
     subject_name: req.body?.subject !== undefined ? readRequiredString(req.body.subject, 'Subject name') : currentContent.subject_name,
@@ -662,6 +998,7 @@ export const updateAdminContent = asyncHandler(async (req: Request, res: Respons
   };
 
   await contentRef.set(updatedContent, { merge: true });
+  await writeCurriculumAudit(req, 'curriculum_content.updated', contentId, curriculumVersionId);
   sendSuccess(res, toAdminContent(updatedContent), 'Curriculum content updated');
 });
 
@@ -669,6 +1006,12 @@ export const deleteAdminContent = asyncHandler(async (req: Request, res: Respons
   assertAdmin(req);
 
   const contentId = readRequiredString(req.params.contentId, 'Content id');
-  await getFirestore().collection('admin_curriculum_content').doc(contentId).delete();
+  const contentRef = getFirestore().collection('admin_curriculum_content').doc(contentId);
+  const contentDoc = await contentRef.get();
+  if (!contentDoc.exists) throw new AppError('Curriculum content not found', 404);
+  const content = contentDoc.data() as CurriculumContentDocument;
+  await requireEditableCurriculumVersion(content.curriculum_version_id, content.grade_level_id, content.subject_id);
+  await contentRef.delete();
+  await writeCurriculumAudit(req, 'curriculum_content.deleted', contentId, content.curriculum_version_id);
   sendSuccess(res, { content_id: contentId }, 'Curriculum content deleted');
 });

@@ -11,6 +11,10 @@ import {
 } from '../../services/tutor.service';
 import { AppError } from '../../utils/AppError';
 import { clearUserRateLimits } from '../../middlewares/userRateLimit';
+import {
+  assertStudentAiAccess,
+  getStudentAiRestrictionStatus,
+} from '../../services/admin-ai-review.service';
 
 jest.mock('../../config/firebase', () => ({
   getAuth: jest.fn(),
@@ -29,6 +33,11 @@ jest.mock('../../services/tutor.service', () => {
   };
 });
 
+jest.mock('../../services/admin-ai-review.service', () => ({
+  assertStudentAiAccess: jest.fn(),
+  getStudentAiRestrictionStatus: jest.fn(),
+}));
+
 const mockedGetAuth = getAuth as jest.MockedFunction<typeof getAuth>;
 const mockedCreateTutorSession = createTutorSession as jest.MockedFunction<
   typeof createTutorSession
@@ -40,6 +49,8 @@ const mockedGetTutorSessionsForUser = getTutorSessionsForUser as jest.MockedFunc
 const mockedSendTutorTurn = sendTutorTurn as jest.MockedFunction<typeof sendTutorTurn>;
 const mockedScanTutorImage = scanTutorImage as jest.MockedFunction<typeof scanTutorImage>;
 const mockedTranscribeTutorVoice = transcribeTutorVoice as jest.MockedFunction<typeof transcribeTutorVoice>;
+const mockedAssertStudentAiAccess = assertStudentAiAccess as jest.MockedFunction<typeof assertStudentAiAccess>;
+const mockedGetStudentAiRestrictionStatus = getStudentAiRestrictionStatus as jest.MockedFunction<typeof getStudentAiRestrictionStatus>;
 
 const app = createApp();
 
@@ -97,6 +108,33 @@ describe('Visual Tutor AI-service proxy routes', () => {
     jest.clearAllMocks();
     clearUserRateLimits();
     mockToken();
+    mockedAssertStudentAiAccess.mockResolvedValue(undefined);
+    mockedGetStudentAiRestrictionStatus.mockResolvedValue({
+      restricted: false,
+      reason: null,
+      restricted_at: null,
+      support_guidance: null,
+    });
+  });
+
+  it('returns a student-safe restriction status for the authenticated student only', async () => {
+    mockedGetStudentAiRestrictionStatus.mockResolvedValue({
+      restricted: true,
+      reason: 'Tutor access is temporarily unavailable. Please contact your teacher for support.',
+      restricted_at: '2026-08-24T00:00:00.000Z',
+      support_guidance: 'Contact your teacher or school support team.',
+    });
+
+    const response = await request(app)
+      .get('/api/v1/tutor/restriction-status')
+      .set(authHeader())
+      .expect(200);
+
+    expect(mockedGetStudentAiRestrictionStatus).toHaveBeenCalledWith('firebase-uid');
+    expect(response.body.data).toEqual(expect.objectContaining({ restricted: true }));
+    expect(response.body.data).not.toHaveProperty('updated_by');
+    expect(response.body.data).not.toHaveProperty('internal_note');
+    expect(response.body.data).not.toHaveProperty('reviewer_id');
   });
 
   it('rejects missing and invalid Firebase credentials before tutor handlers run', async () => {

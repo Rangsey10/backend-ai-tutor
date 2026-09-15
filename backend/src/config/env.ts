@@ -1,8 +1,13 @@
 import dotenv from 'dotenv';
 
-dotenv.config();
+// Tests receive an explicit Jest setup environment. Loading `.env` here would
+// let a developer's credentials or local feature flags alter test outcomes.
+// Never infer test mode from a Jest-specific variable: an inherited variable
+// must not downgrade a staging or production process and bypass its guards.
+const isTestRuntime = process.env.NODE_ENV === 'test';
+if (!isTestRuntime) dotenv.config();
 
-const nodeEnv = process.env.NODE_ENV ?? 'development';
+const nodeEnv = isTestRuntime ? 'test' : (process.env.NODE_ENV ?? 'development');
 const appEnv = process.env.APP_ENV ?? '';
 const isDev = nodeEnv === 'development';
 const isProductionLike = nodeEnv === 'production' || nodeEnv === 'staging';
@@ -62,6 +67,20 @@ function cleanEnvValue(value: string | undefined): string {
 const corsOrigins = parseCorsOrigins(process.env.CORS_ALLOWED_ORIGINS);
 if (isProductionLike && (corsOrigins.length === 0 || corsOrigins.includes('*'))) {
   throw new Error('CORS_ALLOWED_ORIGINS must be a non-wildcard allow-list in staging and production');
+}
+if (isProductionLike) {
+  const jwtSecret = cleanEnvValue(process.env.JWT_ACCESS_SECRET);
+  if (jwtSecret.length < 32 || jwtSecret.includes('change-me')) throw new Error('JWT_ACCESS_SECRET must be a unique 32+ character production secret');
+  if (!cleanEnvValue(process.env.FIREBASE_PROJECT_ID) || !cleanEnvValue(process.env.FIREBASE_CLIENT_EMAIL) || !cleanEnvValue(process.env.FIREBASE_PRIVATE_KEY)) throw new Error('Firebase Admin credentials are required in staging and production');
+  if ((process.env.ALLOW_DEVELOPMENT_FALLBACKS ?? '').toLowerCase() === 'true' || (process.env.ALLOW_DEMO_AUTHENTICATION ?? '').toLowerCase() === 'true' || (process.env.AI_SERVICE_USE_DEV_MOCK ?? '').toLowerCase() === 'true') throw new Error('Development authentication and AI fallbacks are forbidden in staging and production');
+  const aiServiceUrl = cleanEnvValue(process.env.AI_SERVICE_BASE_URL);
+  if (!aiServiceUrl) throw new Error('AI_SERVICE_BASE_URL is required in staging and production');
+  try {
+    const parsed = new URL(aiServiceUrl);
+    if (['localhost', '127.0.0.1', '::1'].includes(parsed.hostname)) throw new Error('local');
+  } catch {
+    throw new Error('AI_SERVICE_BASE_URL must be a non-local absolute URL in staging and production');
+  }
 }
 
 function required(name: string, fallback?: string): string {

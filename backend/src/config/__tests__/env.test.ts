@@ -20,4 +20,12 @@ describe('environment fallback policy', () => {
     expect(allowsDemoAuthentication('development', true)).toBe(true);
     expect(allowsDemoAuthentication('development', true, 'staging')).toBe(false);
   });
+
+  it('does not treat a Jest worker marker as permission to weaken production', () => {
+    // Jest sets this marker for workers; deployment mode must still be decided
+    // only by the explicit NODE_ENV value.
+    expect(process.env.NODE_ENV).toBe('test');
+    expect(allowsDemoAuthentication('production', true, 'production')).toBe(false);
+    expect(allowsDevelopmentFallbacks('staging', true, 'staging')).toBe(false);
+  });
 });

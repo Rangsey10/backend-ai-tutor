@@ -5,6 +5,8 @@ import type {
 } from '../schemas/tutor-request.schema';
 import { AppError } from '../utils/AppError';
 import { logger } from '../utils/logger';
+import { incrementMetric } from './observability.service';
+import { TeachingPlanContractError, recoverPublicTutorTurn, validatePublicTutorTurn, validateTeachingPlan } from './teaching-plan.contract';
 
 type JsonObject = Record<string, unknown>;
 
@@ -26,8 +28,39 @@ const BOUNDED_ACTION_TYPES = new Set([
 ]);
 const GRAPH_ACTION_TYPES = new Set(['show_graph', 'plot_function']);
 
-function validateBoardContract(payload: unknown): void {
+function validateBoardContract(payload: unknown, requirePublicTutorTurn = false): void {
+  if (requirePublicTutorTurn) {
+    try {
+      validatePublicTutorTurn(payload);
+    } catch (error) {
+      logger.info('Visual Tutor safety metric', {
+        metric: 'invalid_plan_rejected', contract: 'public_tutor_turn',
+        reason: error instanceof Error ? error.message : 'unknown',
+      });
+      throw new AppError(
+        error instanceof TeachingPlanContractError ? error.message : 'AI returned an invalid public tutor turn',
+        502, true, 'INVALID_TEACHING_PLAN'
+      );
+    }
+    return;
+  }
   const body = objectValue(payload);
+  const rawTeachingPlan = body?.teaching_plan ?? objectValue(body?.metadata)?.teaching_plan;
+  const teachingPlan = normalizeTeachingPlan(rawTeachingPlan);
+  if (teachingPlan !== undefined) {
+    try {
+      validateTeachingPlan(teachingPlan);
+    } catch (error) {
+      logger.info('Visual Tutor safety metric', {
+        metric: 'invalid_plan_rejected', contract: 'teaching_plan',
+        reason: error instanceof Error ? error.message : 'unknown',
+      });
+      throw new AppError(
+        error instanceof TeachingPlanContractError ? error.message : 'AI returned an invalid teaching plan',
+        502, true, 'INVALID_TEACHING_PLAN'
+      );
+    }
+  }
   const actions = body?.board_actions;
   if (actions === undefined) return; // Backward-compatible session/list payload.
   if (!Array.isArray(actions) || actions.length > 24) {
@@ -82,6 +115,20 @@ function validateBoardContract(payload: unknown): void {
   }
 }
 
+function normalizeTeachingPlan(value: unknown): unknown {
+  const plan = objectValue(value);
+  if (!plan || Array.isArray(plan.board_actions)) return value;
+  // Public tutor turns intentionally send only visible actions plus the one
+  // active task. Rebuild the internal validation shape without reintroducing
+  // legacy board/canvas payloads to the client.
+  const visible = Array.isArray(plan.visible_board_actions) ? plan.visible_board_actions : [];
+  const task = objectValue(plan.active_student_task);
+  return {
+    ...plan,
+    board_actions: [...visible, ...(task ? [task] : [])],
+  };
+}
+
 function isValidGraphPayload(value: unknown): boolean {
   const graph = objectValue(value);
   if (!graph) return false;
@@ -112,7 +159,7 @@ function responseMetadata(payload: unknown): JsonObject {
   return objectValue(data?.metadata) ?? {};
 }
 
-function internalTutorHeaders(userId: string): Record<string, string> {
+function internalTutorHeaders(userId: string, requestId?: string): Record<string, string> {
   const token =
     env.aiService.visualTutorInternalToken || (env.nodeEnv === 'test' ? 'test-internal-token' : '');
   if (!token) {
@@ -125,6 +172,7 @@ function internalTutorHeaders(userId: string): Record<string, string> {
   }
   return {
     'x-visual-tutor-user-id': userId,
+    ...(requestId ? { 'x-request-id': requestId } : {}),
     'x-visual-tutor-internal-token': token,
   };
 }
@@ -141,6 +189,24 @@ function aiServiceAction(payload: TutorTurnRequestInput): string {
     check_work: 'submit_step',
   };
   return aliases[action] ?? action;
+}
+
+/**
+ * The client's `student_intent` uses the same UI-side vocabulary as `action`
+ * (e.g. the "Check" quick action sends intent "check_work"), but the AI
+ * service's VisualTutorStudentIntent enum doesn't share that vocabulary --
+ * only `action` was being translated here, so a value like "check_work" hit
+ * the AI service's request validation and 422'd the whole turn. Everything
+ * else the client sends already matches the enum verbatim; only this one
+ * value needs remapping.
+ */
+function aiServiceStudentIntent(payload: TutorTurnRequestInput): string | undefined {
+  const intent = payload.student_intent;
+  if (typeof intent !== 'string') return intent;
+  const aliases: Record<string, string> = {
+    check_work: 'submitted_step',
+  };
+  return aliases[intent] ?? intent;
 }
 
 function aiServiceInputType(payload: TutorTurnRequestInput): string {
@@ -345,11 +411,12 @@ async function requestAiService(
       ...options,
       headers: {
         'content-type': 'application/json',
-        ...(context ? internalTutorHeaders(context.userId) : {}),
+        ...(context ? internalTutorHeaders(context.userId, context.requestId) : {}),
         ...(options.headers ?? {}),
       },
     });
   } catch (error) {
+    incrementMetric('tutor_response_errors_total');
     logger.error('Visual Tutor proxy request failed before response', {
       request_id: context?.requestId,
       session_id: context?.sessionId,
@@ -384,8 +451,17 @@ async function requestAiService(
     solver_speech_bypassed: metadata?.solver_speech_bypassed,
     llm_latency_ms: metadata?.llm_latency_ms,
   });
+  if (metadata?.planner_fallback === true || metadata?.response_source === 'template_fallback') {
+    logger.info('Visual Tutor safety metric', {
+      metric: 'provider_fallback', request_id: context?.requestId,
+      session_id: context?.sessionId, operation: context?.operation,
+      fallback_reason: typeof metadata?.fallback_reason === 'string' ? metadata.fallback_reason : 'provider_or_plan_unavailable',
+    });
+  }
 
   if (!response.ok) {
+    incrementMetric('tutor_response_errors_total');
+    if (response.status === 409) incrementMetric('stale_board_conflicts_total');
     const message =
       typeof payload === 'object' &&
       payload !== null &&
@@ -394,12 +470,22 @@ async function requestAiService(
         ? ((payload as JsonObject).message as string)
         : 'AI service request failed';
 
-    throw new AppError(message, response.status, true, 'AI_SERVICE_ERROR', payload);
+    logger.error('Visual Tutor upstream request failed', {
+      request_id: context?.requestId,
+      operation: context?.operation,
+      ai_service_status: response.status,
+      upstream_message: message.slice(0, 180),
+    });
+    // Never expose a remote response body: it can include persistence or
+    // solver diagnostics that are not part of the student contract.
+    throw new AppError('The tutor service could not complete this request. Please retry.', response.status, true, 'AI_SERVICE_ERROR');
   }
 
-  validateBoardContract(payload);
+  const publicTurn = context?.operation === 'send_turn';
+  const safePayload = publicTurn ? recoverPublicTutorTurn(payload) : payload;
+  validateBoardContract(safePayload, publicTurn);
 
-  return payload;
+  return safePayload;
 }
 
 export async function createTutorSession(
@@ -455,8 +541,13 @@ export async function sendTutorTurn(
       body: JSON.stringify({
         ...payload,
         action: aiServiceAction(payload),
+        student_intent: aiServiceStudentIntent(payload),
         input_type: aiServiceInputType(payload),
         user_id: userId,
+        metadata: {
+          ...(objectValue(payload.metadata) ?? {}),
+          public_contract_version: 1,
+        },
       }),
     },
     {
@@ -466,6 +557,50 @@ export async function sendTutorTurn(
       operation: 'send_turn',
     }
   );
+}
+
+/**
+ * Opens the private AI SSE response without buffering it. The gateway still
+ * owns student authentication; the AI service receives only its internal
+ * service token and authenticated user header.
+ */
+export async function streamTutorTurn(
+  userId: string,
+  payload: TutorTurnRequestInput,
+  context?: Omit<TutorProxyLogContext, 'userId' | 'operation'> & { lastEventId?: string }
+): Promise<Response> {
+  const url = new URL('/api/v1/visual_tutor/turn/stream', env.aiService.baseUrl);
+  const requestId = context?.requestId;
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      accept: 'text/event-stream',
+      ...(context?.lastEventId ? { 'last-event-id': context.lastEventId } : {}),
+      ...internalTutorHeaders(userId, requestId),
+    },
+    body: JSON.stringify({
+      ...payload,
+      action: aiServiceAction(payload),
+      student_intent: aiServiceStudentIntent(payload),
+      input_type: aiServiceInputType(payload),
+      user_id: userId,
+      metadata: {
+        ...(objectValue(payload.metadata) ?? {}),
+        public_contract_version: 1,
+      },
+    }),
+  });
+  if (!response.ok || !response.body) {
+    incrementMetric('tutor_response_errors_total');
+    throw new AppError(
+      'The tutor stream could not start. Please retry.',
+      response.ok ? 502 : response.status,
+      true,
+      'AI_STREAM_UNAVAILABLE'
+    );
+  }
+  return response;
 }
 
 export async function scanTutorImage(
@@ -569,13 +704,24 @@ export async function assertTutorSessionOwnership(
   sessionId: string,
   userId: string
 ): Promise<void> {
-  const response = await getTutorSession(sessionId, userId);
-  if (responseBelongsToUser(response, userId) !== true) {
-    throw new AppError(
-      'You cannot access another user tutor session',
-      403,
-      true,
-      'TUTOR_SESSION_FORBIDDEN'
-    );
+  try {
+    // The AI service authenticates this gateway request and verifies ownership
+    // before returning its intentionally privacy-projected session DTO.  That
+    // DTO must not include `user_id`, so checking its response body here would
+    // turn every valid session into a false ownership failure.
+    await getTutorSession(sessionId, userId);
+  } catch (error) {
+    // Preserve a student-safe, domain-specific error for a genuinely
+    // cross-account session.  Other upstream failures remain retryable AI
+    // service errors and must not be mistaken for an ownership decision.
+    if (error instanceof AppError && error.statusCode === 403) {
+      throw new AppError(
+        'You cannot access another user tutor session',
+        403,
+        true,
+        'TUTOR_SESSION_FORBIDDEN'
+      );
+    }
+    throw error;
   }
 }
