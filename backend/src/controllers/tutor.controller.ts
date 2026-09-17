@@ -18,6 +18,7 @@ import {
   synthesizeTutorVoice,
   validateTutorImageUpload,
   validateTutorAudioUpload,
+  sendTutorTelemetry,
 } from '../services/tutor.service';
 import { AppError } from '../utils/AppError';
 import { asyncHandler } from '../utils/asyncHandler';
@@ -102,6 +103,19 @@ export const sendTurn = asyncHandler(async (req: Request, res: Response) => {
     }
   );
   res.status(200).json(response);
+});
+
+/**
+ * Board diagnostics. Telemetry must never affect a lesson, so a failure here is
+ * swallowed and still answered 202 -- the app already treats it as best effort.
+ */
+export const sendTelemetry = asyncHandler(async (req: Request, res: Response) => {
+  try {
+    await sendTutorTelemetry(req.user!.uid, req.body, { requestId: requestId(req) });
+  } catch {
+    // Intentionally ignored: never turn a diagnostics batch into a student error.
+  }
+  res.status(202).json({ success: true });
 });
 
 /** Proxy a validated, authenticated SSE turn without exposing AI credentials. */

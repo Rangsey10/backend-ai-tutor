@@ -36,6 +36,29 @@ export const tutorUserSessionsParamsSchema = z
   })
   .strict();
 
+/** Bounded operational aggregates from the board. Never lesson content. */
+export const tutorTelemetryRequestSchema = z
+  .object({
+    events: z
+      .array(
+        z
+          .object({
+            kind: z.string().min(1).max(48),
+            outcome: z.string().min(1).max(48).optional(),
+            count: z.number().int().min(0).max(100000).optional(),
+          })
+          .strict()
+      )
+      .min(1)
+      .max(50),
+    device_class: z.enum(['mobile', 'tablet', 'desktop', 'landscape']),
+    viewport_bucket: z.enum(['xs', 'sm', 'md', 'lg', 'xl']),
+    reduced_motion: z.boolean(),
+  })
+  .strict();
+
+export type TutorTelemetryRequestInput = z.infer<typeof tutorTelemetryRequestSchema>;
+
 export const tutorTurnRequestSchema = z
   .object({
     session_id: z.string().min(1).max(256).optional(),

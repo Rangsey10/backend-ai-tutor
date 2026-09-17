@@ -6,6 +6,7 @@ import {
   getUserSessions,
   sendTurn,
   streamTurn,
+  sendTelemetry,
   scanProblem,
   transcribeVoice,
   synthesizeVoice,
@@ -20,6 +21,7 @@ import {
   tutorSessionParamsSchema,
   tutorTurnRequestSchema,
   tutorUserSessionsParamsSchema,
+  tutorTelemetryRequestSchema,
 } from '../schemas/tutor-request.schema';
 
 const router = Router();
@@ -61,6 +63,14 @@ router.post(
   userRateLimit('tutor-turn-stream', 20, 60_000),
   validate({ body: tutorTurnRequestSchema }),
   streamTurn
+);
+// High-volume by nature: a generous limit keeps diagnostics from ever
+// competing with a student's actual turns.
+router.post(
+  '/telemetry',
+  userRateLimit('tutor-telemetry', 120, 60_000),
+  validate({ body: tutorTelemetryRequestSchema }),
+  sendTelemetry
 );
 router.post(
   '/turn',

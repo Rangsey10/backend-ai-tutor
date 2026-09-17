@@ -1,11 +1,12 @@
 import request from 'supertest';
 import { createApp } from '../../app';
-import { getAuth } from '../../config/firebase';
+import { getAuth, getFirestore } from '../../config/firebase';
 import {
   createTutorSession,
   getTutorSession,
   getTutorSessionsForUser,
   sendTutorTurn,
+  sendTutorTelemetry,
   scanTutorImage,
   transcribeTutorVoice,
 } from '../../services/tutor.service';
@@ -18,6 +19,7 @@ import {
 
 jest.mock('../../config/firebase', () => ({
   getAuth: jest.fn(),
+  getFirestore: jest.fn(),
 }));
 
 jest.mock('../../services/tutor.service', () => {
@@ -28,6 +30,7 @@ jest.mock('../../services/tutor.service', () => {
     getTutorSession: jest.fn(),
     getTutorSessionsForUser: jest.fn(),
     sendTutorTurn: jest.fn(),
+    sendTutorTelemetry: jest.fn(),
     scanTutorImage: jest.fn(),
     transcribeTutorVoice: jest.fn(),
   };
@@ -47,12 +50,44 @@ const mockedGetTutorSessionsForUser = getTutorSessionsForUser as jest.MockedFunc
   typeof getTutorSessionsForUser
 >;
 const mockedSendTutorTurn = sendTutorTurn as jest.MockedFunction<typeof sendTutorTurn>;
+const mockedSendTutorTelemetry = sendTutorTelemetry as jest.MockedFunction<
+  typeof sendTutorTelemetry
+>;
 const mockedScanTutorImage = scanTutorImage as jest.MockedFunction<typeof scanTutorImage>;
 const mockedTranscribeTutorVoice = transcribeTutorVoice as jest.MockedFunction<typeof transcribeTutorVoice>;
 const mockedAssertStudentAiAccess = assertStudentAiAccess as jest.MockedFunction<typeof assertStudentAiAccess>;
 const mockedGetStudentAiRestrictionStatus = getStudentAiRestrictionStatus as jest.MockedFunction<typeof getStudentAiRestrictionStatus>;
 
 const app = createApp();
+
+/**
+ * authenticate() falls back to Firebase and then auto-provisions the Firestore
+ * `users` document. Without this the lookup throws and every authenticated
+ * request in this file answers 401 instead of exercising its route.
+ */
+function mockUserDocument(uid = 'firebase-uid') {
+  const snapshot = {
+    exists: true,
+    data: () => ({
+      user_id: uid,
+      firebase_uid: uid,
+      full_name: 'Test Student',
+      email: 'student@example.com',
+      role: 'student',
+      account_status: 'active',
+    }),
+  };
+  const doc = jest.fn().mockReturnValue({
+    get: jest.fn().mockResolvedValue(snapshot),
+    set: jest.fn().mockResolvedValue(undefined),
+  });
+  (getFirestore as jest.Mock).mockReturnValue({
+    collection: jest.fn().mockReturnValue({
+      withConverter: jest.fn().mockReturnValue({ doc }),
+      doc,
+    }),
+  } as never);
+}
 
 function mockToken(role = 'student') {
   mockedGetAuth.mockReturnValue({
@@ -108,6 +143,7 @@ describe('Visual Tutor AI-service proxy routes', () => {
     jest.clearAllMocks();
     clearUserRateLimits();
     mockToken();
+    mockUserDocument();
     mockedAssertStudentAiAccess.mockResolvedValue(undefined);
     mockedGetStudentAiRestrictionStatus.mockResolvedValue({
       restricted: false,
@@ -115,6 +151,57 @@ describe('Visual Tutor AI-service proxy routes', () => {
       restricted_at: null,
       support_guidance: null,
     });
+  });
+
+  it('forwards board diagnostics instead of 404ing every batch', async () => {
+    mockedSendTutorTelemetry.mockResolvedValue({ status: 'accepted' });
+
+    await request(app)
+      .post('/api/v1/tutor/telemetry')
+      .set(authHeader())
+      .send({
+        events: [{ kind: 'board_conflict', outcome: 'success' }],
+        device_class: 'mobile',
+        viewport_bucket: 'sm',
+        reduced_motion: false,
+      })
+      .expect(202);
+
+    expect(mockedSendTutorTelemetry).toHaveBeenCalledWith(
+      'firebase-uid',
+      expect.objectContaining({ device_class: 'mobile' }),
+      expect.anything()
+    );
+  });
+
+  it('never fails a lesson when diagnostics cannot be delivered', async () => {
+    mockedSendTutorTelemetry.mockRejectedValue(new Error('ai service down'));
+
+    await request(app)
+      .post('/api/v1/tutor/telemetry')
+      .set(authHeader())
+      .send({
+        events: [{ kind: 'recovery', outcome: 'failure' }],
+        device_class: 'desktop',
+        viewport_bucket: 'lg',
+        reduced_motion: true,
+      })
+      .expect(202);
+  });
+
+  it('rejects a telemetry batch that is not bounded diagnostics', async () => {
+    await request(app)
+      .post('/api/v1/tutor/telemetry')
+      .set(authHeader())
+      .send({
+        events: [{ kind: 'board_conflict', student_answer: 'x = 6' }],
+        device_class: 'mobile',
+        viewport_bucket: 'sm',
+        reduced_motion: false,
+      })
+      .expect(400);
+
+    expect(mockedSendTutorTelemetry).not.toHaveBeenCalled();
   });
 
   it('returns a student-safe restriction status for the authenticated student only', async () => {

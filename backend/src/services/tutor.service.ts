@@ -218,7 +218,12 @@ export type TutorProxyLogContext = {
   requestId?: string;
   userId: string;
   sessionId?: string;
-  operation: 'create_session' | 'get_session' | 'list_sessions' | 'send_turn';
+  operation:
+    | 'create_session'
+    | 'get_session'
+    | 'list_sessions'
+    | 'send_turn'
+    | 'client_telemetry';
 };
 
 export type TutorImageScanResult = {
@@ -504,6 +509,23 @@ export async function createTutorSession(
       }),
     },
     { ...context, userId, operation: 'create_session' }
+  );
+}
+
+/**
+ * Board diagnostics only -- counts and outcomes, never lesson content. The app
+ * has always sent these; without this proxy every batch 404'd, which is why a
+ * short lesson produced dozens of failed requests.
+ */
+export async function sendTutorTelemetry(
+  userId: string,
+  payload: unknown,
+  context?: Omit<TutorProxyLogContext, 'userId' | 'operation'>
+): Promise<unknown> {
+  return requestAiService(
+    '/api/v1/visual_tutor/telemetry',
+    { method: 'POST', body: JSON.stringify(payload) },
+    { ...context, userId, operation: 'client_telemetry' }
   );
 }
 
