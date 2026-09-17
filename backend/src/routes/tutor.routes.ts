@@ -7,7 +7,6 @@ import {
   sendTurn,
   streamTurn,
   sendTelemetry,
-  scanProblem,
   transcribeVoice,
   synthesizeVoice,
   getRestrictionStatus,
@@ -34,12 +33,6 @@ router.post(
   userRateLimit('tutor-session', 20, 60_000),
   validate({ body: createTutorSessionRequestSchema }),
   createSession
-);
-router.post(
-  '/scan',
-  userRateLimit('tutor-scan', 5, 10 * 60_000),
-  express.raw({ type: ['image/jpeg', 'image/png', 'image/webp'], limit: '8mb' }),
-  scanProblem
 );
 router.post(
   '/voice/transcribe',

@@ -7,7 +7,6 @@ import {
   getTutorSessionsForUser,
   sendTutorTurn,
   sendTutorTelemetry,
-  scanTutorImage,
   transcribeTutorVoice,
 } from '../../services/tutor.service';
 import { AppError } from '../../utils/AppError';
@@ -31,7 +30,6 @@ jest.mock('../../services/tutor.service', () => {
     getTutorSessionsForUser: jest.fn(),
     sendTutorTurn: jest.fn(),
     sendTutorTelemetry: jest.fn(),
-    scanTutorImage: jest.fn(),
     transcribeTutorVoice: jest.fn(),
   };
 });
@@ -53,7 +51,6 @@ const mockedSendTutorTurn = sendTutorTurn as jest.MockedFunction<typeof sendTuto
 const mockedSendTutorTelemetry = sendTutorTelemetry as jest.MockedFunction<
   typeof sendTutorTelemetry
 >;
-const mockedScanTutorImage = scanTutorImage as jest.MockedFunction<typeof scanTutorImage>;
 const mockedTranscribeTutorVoice = transcribeTutorVoice as jest.MockedFunction<typeof transcribeTutorVoice>;
 const mockedAssertStudentAiAccess = assertStudentAiAccess as jest.MockedFunction<typeof assertStudentAiAccess>;
 const mockedGetStudentAiRestrictionStatus = getStudentAiRestrictionStatus as jest.MockedFunction<typeof getStudentAiRestrictionStatus>;
@@ -101,21 +98,6 @@ function mockToken(role = 'student') {
 
 function authHeader(token = 'valid-token') {
   return { Authorization: `Bearer ${token}` };
-}
-
-function pngHeader(width = 320, height = 320): Buffer {
-  const buffer = Buffer.alloc(24);
-  buffer.writeUInt8(0x89, 0);
-  buffer.write('PNG', 1, 'ascii');
-  buffer.writeUInt8(0x0d, 4);
-  buffer.writeUInt8(0x0a, 5);
-  buffer.writeUInt8(0x1a, 6);
-  buffer.writeUInt8(0x0a, 7);
-  buffer.writeUInt32BE(13, 8);
-  buffer.write('IHDR', 12, 'ascii');
-  buffer.writeUInt32BE(width, 16);
-  buffer.writeUInt32BE(height, 20);
-  return buffer;
 }
 
 function wavBytes(seconds = 1): Buffer {
@@ -290,79 +272,6 @@ describe('Visual Tutor AI-service proxy routes', () => {
 
     expect(response.body.error.code).toBe('VALIDATION_ERROR');
     expect(mockedCreateTutorSession).not.toHaveBeenCalled();
-  });
-
-  it('accepts a supported image only through the authenticated student gateway', async () => {
-    mockedScanTutorImage.mockResolvedValue({
-      detected_text: '2x + 5 = 15',
-      confidence: 0.9,
-      language: 'en',
-    });
-
-    const response = await request(app)
-      .post('/api/v1/tutor/scan')
-      .set(authHeader())
-      .set('Content-Type', 'image/png')
-      .set('X-Upload-Filename', 'problem.png')
-      .send(pngHeader())
-      .expect(200);
-
-    expect(response.body.data.detected_text).toBe('2x + 5 = 15');
-    expect(mockedScanTutorImage).toHaveBeenCalledWith(
-      'firebase-uid',
-      expect.any(Buffer),
-      'image/png',
-      'problem.png',
-      expect.objectContaining({ requestId: expect.any(String) })
-    );
-  });
-
-  it('rejects an unsupported image content type before it reaches AI', async () => {
-    const response = await request(app)
-      .post('/api/v1/tutor/scan')
-      .set(authHeader())
-      .set('Content-Type', 'application/pdf')
-      .send(Buffer.from('not an image'))
-      .expect(400);
-
-    expect(response.body.error.code).toBe('INVALID_IMAGE_UPLOAD');
-    expect(mockedScanTutorImage).not.toHaveBeenCalled();
-  });
-
-  it('rejects a supported MIME type when its image dimensions are invalid before AI', async () => {
-    const response = await request(app)
-      .post('/api/v1/tutor/scan')
-      .set(authHeader())
-      .set('Content-Type', 'image/png')
-      .send(pngHeader(100, 100))
-      .expect(422);
-
-    expect(response.body.error.code).toBe('INVALID_IMAGE_DIMENSIONS');
-    expect(mockedScanTutorImage).not.toHaveBeenCalled();
-  });
-
-  it('rate limits repeated OCR requests before they reach the AI service', async () => {
-    mockedScanTutorImage.mockResolvedValue({
-      detected_text: '2x + 5 = 15',
-      confidence: 0.9,
-      language: 'en',
-    });
-    for (let attempt = 0; attempt < 5; attempt += 1) {
-      await request(app)
-        .post('/api/v1/tutor/scan')
-        .set(authHeader())
-        .set('Content-Type', 'image/png')
-        .send(pngHeader())
-        .expect(200);
-    }
-    const limited = await request(app)
-      .post('/api/v1/tutor/scan')
-      .set(authHeader())
-      .set('Content-Type', 'image/png')
-      .send(pngHeader())
-      .expect(429);
-    expect(limited.headers['retry-after']).toBeDefined();
-    expect(mockedScanTutorImage).toHaveBeenCalledTimes(5);
   });
 
   it('accepts a valid authenticated WAV recording and never accepts a client user id', async () => {
