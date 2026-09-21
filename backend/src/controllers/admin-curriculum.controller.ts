@@ -1015,3 +1015,319 @@ export const deleteAdminContent = asyncHandler(async (req: Request, res: Respons
   await writeCurriculumAudit(req, 'curriculum_content.deleted', contentId, content.curriculum_version_id);
   sendSuccess(res, { content_id: contentId }, 'Curriculum content deleted');
 });
+
+function normalizeKhmerTermsForImport(raw: unknown): Record<string, string> {
+  if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+    return Object.fromEntries(
+      Object.entries(raw as Record<string, unknown>)
+        .filter(([k, v]) => typeof k === 'string' && typeof v === 'string' && k.trim() && (v as string).trim())
+        .map(([k, v]) => [k.trim(), (v as string).trim()])
+    );
+  }
+  if (Array.isArray(raw)) {
+    const result: Record<string, string> = {};
+    for (const item of raw) {
+      if (item && typeof item === 'object') {
+        const obj = item as Record<string, unknown>;
+        const en = String(obj.english ?? obj.en ?? obj.term ?? '').trim();
+        const km = String(obj.khmer ?? obj.km ?? '').trim();
+        if (en && km) result[en] = km;
+      }
+    }
+    return result;
+  }
+  return {};
+}
+
+export const importCurriculumDataset = asyncHandler(async (req: Request, res: Response) => {
+  assertAdmin(req);
+
+  const rawItems: unknown[] = Array.isArray(req.body)
+    ? req.body
+    : Array.isArray(req.body?.dataset)
+      ? req.body.dataset
+      : Array.isArray(req.body?.items)
+        ? req.body.items
+        : Array.isArray(req.body?.chunks)
+          ? req.body.chunks
+          : req.body?.chunk
+            ? [req.body.chunk]
+            : [];
+
+  const commit = req.body?.commit === true || req.query?.commit === 'true';
+
+  if (!rawItems.length) {
+    throw new AppError('No curriculum items provided for import', 400);
+  }
+
+  const parsedItems: Array<{
+    chunkId: string;
+    gradeNumber: number;
+    gradeId: string;
+    gradeName: string;
+    subjectName: string;
+    subjectCode: string;
+    subjectId: string;
+    topicName: string;
+    topicCode: string;
+    topicId: string;
+    subtopic: string;
+    formulas: unknown[];
+    khmerTerms: Record<string, string>;
+    text: string;
+    summary: string;
+    solutionSteps: unknown[];
+    commonMisconceptions: unknown[];
+    examples: unknown[];
+    exercises: unknown[];
+    prerequisites: string[];
+    tags: string[];
+    difficulty: string;
+  }> = [];
+
+  const errors: Array<{ index: number; error: string }> = [];
+
+  for (let i = 0; i < rawItems.length; i++) {
+    const item = rawItems[i] as Record<string, unknown>;
+    if (!item || typeof item !== 'object') {
+      errors.push({ index: i, error: 'Item must be a valid JSON object' });
+      continue;
+    }
+
+    const rawGrade = item.grade ?? (typeof item.id === 'string' && item.id.includes('g10') ? 10 : typeof item.id === 'string' && item.id.includes('g11') ? 11 : 12);
+    const gradeNumber = Number(String(rawGrade).replace(/[^0-9]/g, ''));
+    if (![10, 11, 12].includes(gradeNumber)) {
+      errors.push({ index: i, error: `Invalid grade '${String(rawGrade)}': must be 10, 11, or 12` });
+      continue;
+    }
+
+    const rawSubject = String(item.subject ?? (typeof item.id === 'string' && item.id.startsWith('physics') ? 'Physics' : typeof item.id === 'string' && item.id.startsWith('chemistry') ? 'Chemistry' : 'Mathematics')).trim();
+    const subjectName = rawSubject.toLowerCase().startsWith('chem')
+      ? 'Chemistry'
+      : rawSubject.toLowerCase().startsWith('phys')
+        ? 'Physics'
+        : 'Mathematics';
+
+    const topicName = String(item.topic ?? item.chapter ?? 'General').trim();
+    if (!topicName) {
+      errors.push({ index: i, error: 'Topic name is required' });
+      continue;
+    }
+
+    const subtopic = String(item.subtopic ?? item.lesson ?? topicName).trim();
+    const chunkId = String(item.id ?? `${slugify(subjectName)}-${slugify(topicName)}-${i}`).trim();
+    const gradeId = `grade-${gradeNumber}`;
+    const gradeName = `Grade ${gradeNumber}`;
+    const subjectCode = subjectName === 'Physics' ? `PHY-${gradeNumber}` : subjectName === 'Chemistry' ? `CHEM-${gradeNumber}` : `MATH-${gradeNumber}`;
+    const subjectId = `${gradeId}-${slugify(subjectName)}`;
+    const topicCode = chunkId;
+    const topicId = `topic-${gradeId}-${slugify(subjectName)}-${slugify(topicName)}`;
+
+    const text = String(item.text ?? item.body ?? item.description ?? item.summary ?? '').trim();
+    const summary = String(item.summary ?? (text.length > 150 ? text.slice(0, 147) + '...' : text)).trim();
+    const formulas = Array.isArray(item.formulas) ? item.formulas : (typeof item.expression === 'string' ? [{ expression: item.expression }] : []);
+    const khmerTerms = normalizeKhmerTermsForImport(item.khmer_terms ?? item.khmerTerms);
+
+    parsedItems.push({
+      chunkId,
+      gradeNumber,
+      gradeId,
+      gradeName,
+      subjectName,
+      subjectCode,
+      subjectId,
+      topicName,
+      topicCode,
+      topicId,
+      subtopic,
+      formulas,
+      khmerTerms,
+      text,
+      summary,
+      solutionSteps: Array.isArray(item.solution_steps) ? item.solution_steps : Array.isArray(item.steps) ? item.steps : [],
+      commonMisconceptions: Array.isArray(item.common_misconceptions) ? item.common_misconceptions : [],
+      examples: Array.isArray(item.examples) ? item.examples : [],
+      exercises: Array.isArray(item.exercises) ? item.exercises : [],
+      prerequisites: Array.isArray(item.prerequisites) ? item.prerequisites.map(String) : [],
+      tags: Array.isArray(item.tags) ? item.tags.map(String) : [slugify(subjectName), `grade-${gradeNumber}`],
+      difficulty: String(item.difficulty ?? 'intermediate').toLowerCase(),
+    });
+  }
+
+  const distinctGrades = Array.from(new Set(parsedItems.map((p) => p.gradeName)));
+  const distinctSubjects = Array.from(new Set(parsedItems.map((p) => p.subjectName)));
+  const distinctTopics = Array.from(new Set(parsedItems.map((p) => p.topicName)));
+  const totalFormulas = parsedItems.reduce((acc, p) => acc + p.formulas.length, 0);
+  const totalKhmerTerms = parsedItems.reduce((acc, p) => acc + Object.keys(p.khmerTerms).length, 0);
+
+  if (!commit) {
+    sendSuccess(res, {
+      preview: true,
+      totalReceived: rawItems.length,
+      validCount: parsedItems.length,
+      invalidCount: errors.length,
+      errors: errors.slice(0, 10),
+      summary: {
+        grades: distinctGrades,
+        subjects: distinctSubjects,
+        topicsCount: distinctTopics.length,
+        topics: distinctTopics.slice(0, 20),
+        totalFormulas,
+        totalKhmerTerms,
+      },
+      sample: parsedItems.slice(0, 3).map((p) => ({
+        grade: p.gradeName,
+        subject: p.subjectName,
+        topic: p.topicName,
+        subtopic: p.subtopic,
+        formulaCount: p.formulas.length,
+        khmerTermCount: Object.keys(p.khmerTerms).length,
+      })),
+    }, 'Curriculum dataset preview generated');
+    return;
+  }
+
+  const db = getFirestore();
+  const now = Timestamp.now();
+  const actorId = req.user?.userId || 'system_import';
+
+  const gradeDocs = new Map<string, Record<string, unknown>>();
+  const subjectDocs = new Map<string, Record<string, unknown>>();
+  const topicDocs = new Map<string, Record<string, unknown>>();
+  const contentDocs = new Map<string, Record<string, unknown>>();
+
+  for (const item of parsedItems) {
+    if (!gradeDocs.has(item.gradeId)) {
+      gradeDocs.set(item.gradeId, {
+        grade_level_id: item.gradeId,
+        grade_name: item.gradeName,
+        grade_number: item.gradeNumber,
+        khmer_name: item.gradeNumber === 10 ? 'ថ្នាក់ទី១០' : item.gradeNumber === 11 ? 'ថ្នាក់ទី១១' : 'ថ្នាក់ទី១២',
+        description: defaultGradeDescriptions[item.gradeNumber] ?? '',
+        status: 'active',
+        created_at: now,
+        updated_at: now,
+      });
+    }
+
+    if (!subjectDocs.has(item.subjectId)) {
+      subjectDocs.set(item.subjectId, {
+        subject_id: item.subjectId,
+        grade_level_id: item.gradeId,
+        grade_name: item.gradeName,
+        subject_name: item.subjectName,
+        subject_code: item.subjectCode,
+        khmer_name: item.subjectName === 'Physics' ? 'រូបវិទ្យា' : item.subjectName === 'Chemistry' ? 'គីមីវិទ្យា' : 'គណិតវិទ្យា',
+        display_order: item.subjectName === 'Mathematics' ? 1 : item.subjectName === 'Physics' ? 2 : 3,
+        status: 'active',
+        created_at: now,
+        updated_at: now,
+      });
+    }
+
+    if (!topicDocs.has(item.topicId)) {
+      topicDocs.set(item.topicId, {
+        topic_id: item.topicId,
+        grade_level_id: item.gradeId,
+        subject_id: item.subjectId,
+        grade_name: item.gradeName,
+        subject_name: item.subjectName,
+        topic_name: item.topicName,
+        khmer_name: item.khmerTerms[item.topicName] || item.topicName,
+        topic_code: item.topicCode,
+        description: item.summary || item.text,
+        difficulty_level: item.difficulty === 'advanced' ? 'advanced' : item.difficulty === 'easy' ? 'beginner' : 'intermediate',
+        learning_objectives: item.solutionSteps.map(String),
+        prerequisites: item.prerequisites,
+        status: 'active',
+        created_at: now,
+        updated_at: now,
+        created_by: actorId,
+        updated_by: actorId,
+      });
+    }
+
+    const contentId = `content-${slugify(item.chunkId)}`;
+    const primaryExpr = item.formulas.length > 0 && typeof item.formulas[0] === 'object' && (item.formulas[0] as Record<string, unknown>).expression
+      ? String((item.formulas[0] as Record<string, unknown>).expression)
+      : (item.formulas.length > 0 && typeof item.formulas[0] === 'string' ? String(item.formulas[0]) : '');
+
+    const editorVariables = item.formulas.length > 0 && typeof item.formulas[0] === 'object' && (item.formulas[0] as Record<string, unknown>).variables
+      ? Object.entries((item.formulas[0] as Record<string, unknown>).variables as Record<string, string>).map(([symbol, meaning], vIdx) => ({
+          id: `var-${vIdx + 1}`,
+          symbol,
+          meaning,
+          unit: '',
+        }))
+      : [];
+
+    const editorSteps = item.solutionSteps.map((stepText, sIdx) => ({
+      id: `step-${sIdx + 1}`,
+      heading: `Step ${sIdx + 1}`,
+      explanation: String(stepText),
+      latex: '',
+    }));
+
+    const editorKhmerTerms = Object.entries(item.khmerTerms).map(([english, khmer], kIdx) => ({
+      id: `term-${kIdx + 1}`,
+      english,
+      khmer,
+    }));
+
+    contentDocs.set(contentId, {
+      content_id: contentId,
+      curriculum_version_id: 'moeys-v1',
+      kind: primaryExpr ? 'formula' : 'concept',
+      grade_level_id: item.gradeId,
+      subject_id: item.subjectId,
+      topic_id: item.topicId,
+      grade_name: item.gradeName,
+      subject_name: item.subjectName,
+      topic_name: item.topicName,
+      lesson: item.subtopic,
+      title: item.subtopic,
+      summary: item.summary,
+      body: item.text,
+      expression: primaryExpr,
+      description: item.text,
+      variables: editorVariables,
+      steps: editorSteps,
+      khmer_terms: editorKhmerTerms,
+      prerequisites: item.prerequisites,
+      tags: item.tags,
+      status: 'draft',
+      created_at: now,
+      updated_at: now,
+    });
+  }
+
+  type WriteOp = { collection: string; id: string; data: Record<string, unknown> };
+  const operations: WriteOp[] = [];
+
+  for (const [id, data] of gradeDocs.entries()) operations.push({ collection: 'grade_levels', id, data });
+  for (const [id, data] of subjectDocs.entries()) operations.push({ collection: 'subjects', id, data });
+  for (const [id, data] of topicDocs.entries()) operations.push({ collection: 'topics', id, data });
+  for (const [id, data] of contentDocs.entries()) operations.push({ collection: 'admin_curriculum_content', id, data });
+
+  const BATCH_SIZE = 400;
+  for (let i = 0; i < operations.length; i += BATCH_SIZE) {
+    const chunk = operations.slice(i, i + BATCH_SIZE);
+    const batch = db.batch();
+    for (const op of chunk) {
+      batch.set(db.collection(op.collection).doc(op.id), op.data, { merge: true });
+    }
+    await batch.commit();
+  }
+
+  await writeCurriculumAudit(req, 'curriculum.bulk_import', 'bulk', 'moeys-v1');
+
+  sendCreated(res, {
+    totalItems: rawItems.length,
+    validItems: parsedItems.length,
+    gradesUpserted: gradeDocs.size,
+    subjectsUpserted: subjectDocs.size,
+    topicsUpserted: topicDocs.size,
+    contentUpserted: contentDocs.size,
+  }, `Successfully imported ${topicDocs.size} topics and ${contentDocs.size} content records`);
+});
+

@@ -23,7 +23,8 @@ function firestoreDouble() {
   return {
     collection(name: string) {
       const documents = collectionDocuments(name);
-      return {
+      const colRef = {
+        withConverter: () => colRef,
         doc(id: string) {
           return {
             async get() {
@@ -41,6 +42,7 @@ function firestoreDouble() {
           };
         },
       };
+      return colRef;
     },
   };
 }

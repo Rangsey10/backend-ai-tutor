@@ -1,6 +1,6 @@
 import request from 'supertest';
 import { createApp } from '../../app';
-import { getAuth } from '../../config/firebase';
+import { getAuth, getFirestore } from '../../config/firebase';
 import {
   getDashboardSummary,
   getRecentActivity,
@@ -16,6 +16,7 @@ import { AppError } from '../../utils/AppError';
 
 jest.mock('../../config/firebase', () => ({
   getAuth: jest.fn(),
+  getFirestore: jest.fn(),
 }));
 
 jest.mock('../../services/progress.service', () => ({
@@ -63,6 +64,30 @@ const mockedGetWeakTopicSummary = getWeakTopicSummary as jest.MockedFunction<
 
 const app = createApp();
 
+function mockUserDocument(uid = 'firebase-uid') {
+  const snapshot = {
+    exists: true,
+    data: () => ({
+      user_id: uid,
+      firebase_uid: uid,
+      full_name: 'Test Student',
+      email: 'student@example.com',
+      role: 'student',
+      account_status: 'active',
+    }),
+  };
+  const doc = jest.fn().mockReturnValue({
+    get: jest.fn().mockResolvedValue(snapshot),
+    set: jest.fn().mockResolvedValue(undefined),
+  });
+  (getFirestore as jest.Mock).mockReturnValue({
+    collection: jest.fn().mockReturnValue({
+      withConverter: jest.fn().mockReturnValue({ doc }),
+      doc,
+    }),
+  } as never);
+}
+
 function mockToken(role = 'student') {
   mockedGetAuth.mockReturnValue({
     verifyIdToken: jest.fn().mockResolvedValue({
@@ -81,6 +106,7 @@ describe('student progress API', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockToken();
+    mockUserDocument();
     mockedAssertTutorSessionOwnership.mockResolvedValue(undefined);
     mockedAssertQuizAttemptOwnership.mockResolvedValue(undefined);
     mockedStoreTutorSessionSummary.mockResolvedValue({

@@ -119,6 +119,7 @@ export const env = {
   seedAdmin: {
     email: cleanEnvValue(process.env.SEED_ADMIN_EMAIL),
     fullName: cleanEnvValue(process.env.SEED_ADMIN_NAME) || 'Admin User',
+    password: process.env.SEED_ADMIN_PASSWORD ?? '',
   },
 
   aiService: {

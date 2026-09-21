@@ -320,8 +320,13 @@ async function readProgressEvents(userId: string): Promise<{
 
 function buildRecentActivity(events: StoredProgressEvent[], limit = 10): RecentActivityItem[] {
   return events
-    .slice()
-    .sort((left, right) => right.created_at.localeCompare(left.created_at))
+    .map((event, index) => ({ event, index }))
+    .sort((left, right) => {
+      const timeDiff = right.event.created_at.localeCompare(left.event.created_at);
+      if (timeDiff !== 0) return timeDiff;
+      return right.index - left.index;
+    })
+    .map(({ event }) => event)
     .slice(0, limit)
     .map((event) => ({
       id: event.id,

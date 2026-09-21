@@ -1,6 +1,6 @@
 import request from 'supertest';
 import { createApp } from '../../app';
-import { getAuth } from '../../config/firebase';
+import { getAuth, getFirestore } from '../../config/firebase';
 import {
   createStudentTutorReport,
   listStudentNotifications,
@@ -8,7 +8,10 @@ import {
 } from '../../services/tutor-report.service';
 import { AppError } from '../../utils/AppError';
 
-jest.mock('../../config/firebase', () => ({ getAuth: jest.fn() }));
+jest.mock('../../config/firebase', () => ({
+  getAuth: jest.fn(),
+  getFirestore: jest.fn(),
+}));
 jest.mock('../../services/tutor-report.service', () => ({
   createStudentTutorReport: jest.fn(),
   listStudentTutorReports: jest.fn(),
@@ -21,8 +24,33 @@ const mockedListReports = listStudentTutorReports as jest.MockedFunction<typeof 
 const mockedListNotifications = listStudentNotifications as jest.MockedFunction<typeof listStudentNotifications>;
 const app = createApp();
 
+function mockUserDocument(uid = 'student-a') {
+  const snapshot = {
+    exists: true,
+    data: () => ({
+      user_id: uid,
+      firebase_uid: uid,
+      full_name: 'Test Student',
+      email: 'student@example.com',
+      role: 'student',
+      account_status: 'active',
+    }),
+  };
+  const doc = jest.fn().mockReturnValue({
+    get: jest.fn().mockResolvedValue(snapshot),
+    set: jest.fn().mockResolvedValue(undefined),
+  });
+  (getFirestore as jest.Mock).mockReturnValue({
+    collection: jest.fn().mockReturnValue({
+      withConverter: jest.fn().mockReturnValue({ doc }),
+      doc,
+    }),
+  } as never);
+}
+
 beforeEach(() => {
   jest.clearAllMocks();
+  mockUserDocument('student-a');
   mockedAuth.mockReturnValue({ verifyIdToken: jest.fn().mockResolvedValue({ uid: 'student-a', role: 'student' }) } as never);
   mockedCreate.mockResolvedValue({ report_id: 'report-1', review_status: 'pending', created_at: '2026-08-17T00:00:00.000Z' });
   mockedListReports.mockResolvedValue([]);

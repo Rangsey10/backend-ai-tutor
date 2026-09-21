@@ -199,4 +199,50 @@ describe('student published lesson catalog', () => {
     expect(lessons[0]).not.toHaveProperty('hidden_answer');
     expect(lessons[0]).not.toHaveProperty('internal_metadata');
   });
+
+  it('populates descoped Grade 12 STEM curriculum across Math, Physics, and Chemistry when unseeded', async () => {
+    firestoreFixture({});
+
+    const allLessons = await listStudentPublishedLessons();
+    expect(allLessons.length).toBeGreaterThanOrEqual(15);
+
+    // Verify all 3 subjects exist
+    const subjects = new Set(allLessons.map((l) => l.subject_id));
+    expect(subjects).toContain('math');
+    expect(subjects).toContain('physics');
+    expect(subjects).toContain('chemistry');
+
+    // Verify all are Grade 12
+    expect(allLessons.every((l) => l.grade_number === 12)).toBe(true);
+
+    // Verify Khmer and English descriptions & titles
+    for (const lesson of allLessons) {
+      expect(lesson.title.trim().length).toBeGreaterThan(0);
+      expect(lesson.description).toBeTruthy();
+      expect(lesson.topic_khmer_name).toBeTruthy();
+    }
+
+    // Verify available topics: limits, kinematics, stoichiometry
+    const available = allLessons.filter((l) => l.is_available);
+    expect(available.map((l) => l.topic_id)).toEqual(
+      expect.arrayContaining([
+        'limits-of-functions-g12',
+        'kinematics-g12',
+        'stoichiometry-g12',
+      ])
+    );
+    for (const lesson of available) {
+      expect(lesson.starter_problem).toBeTruthy();
+    }
+
+    // Verify unavailable topics are marked is_available = false
+    const unavailable = allLessons.filter((l) => !l.is_available);
+    expect(unavailable.length).toBeGreaterThan(0);
+    expect(unavailable.every((l) => l.is_available === false)).toBe(true);
+
+    // Verify filtering by subject works
+    const physicsOnly = await listStudentPublishedLessons({ subject_id: 'physics' });
+    expect(physicsOnly.length).toBe(5);
+    expect(physicsOnly.every((l) => l.subject_id === 'physics')).toBe(true);
+  });
 });

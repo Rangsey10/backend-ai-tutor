@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "nodemon --watch src --ext ts --exec ts-node --files src/server.ts",
     "seed:admin": "ts-node --files src/scripts/seed-admin.ts",
+    "import:curriculum": "ts-node --files src/scripts/import-curriculum-json.ts",
     "build": "tsc -p tsconfig.json",
     "start": "node dist/server.js",
     "lint": "eslint . --ext .ts",

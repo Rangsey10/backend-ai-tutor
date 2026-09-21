@@ -74,7 +74,10 @@ export async function authenticate(
 
   try {
     const claims = verifyAccessToken(token);
-    if (!isFirebaseInitialized() && env.firebase.allowLocalFallback && !env.isProductionLike) {
+    const isLocalAdminClaim = claims.sub === 'local-admin';
+    const isLocalFallbackAllowed = env.firebase.allowLocalFallback && !env.isProductionLike;
+
+    if (isLocalAdminClaim || (!isFirebaseInitialized() && isLocalFallbackAllowed)) {
       req.user = {
         uid: `local:${claims.sub}`,
         userId: claims.sub,
@@ -89,6 +92,17 @@ export async function authenticate(
     const userDocument = await getFirestore().collection('users').withConverter(userConverter).doc(claims.sub).get();
 
     if (!userDocument.exists) {
+      if (isLocalFallbackAllowed) {
+        req.user = {
+          uid: `local:${claims.sub}`,
+          userId: claims.sub,
+          email: claims.email,
+          role: claims.role,
+          normalizedRole: normalizeUserRole(claims.role),
+        };
+        next();
+        return;
+      }
       next(new AppError('User account not found for access token', 401));
       return;
     }

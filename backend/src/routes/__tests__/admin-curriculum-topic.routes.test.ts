@@ -32,6 +32,7 @@ jest.mock('../../controllers/admin-curriculum.controller', () => ({
   updateAdminSubject: jest.fn((_req: express.Request, res: express.Response) => res.status(200).json({ route: 'subject-update' })),
   updateAdminTopic: jest.fn((_req: express.Request, res: express.Response) => res.status(200).json({ route: 'topic-update' })),
   updateAdminTopicStatus: jest.fn((_req: express.Request, res: express.Response) => res.status(200).json({ route: 'topic-status' })),
+  importCurriculumDataset: jest.fn((_req: express.Request, res: express.Response) => res.status(200).json({ route: 'curriculum-import' })),
 }));
 jest.mock('../../controllers/curriculum-version.controller', () => ({
   archiveCurriculumVersion: jest.fn(),
@@ -41,6 +42,7 @@ jest.mock('../../controllers/curriculum-version.controller', () => ({
   publishCurriculumVersion: jest.fn(),
   rejectCurriculumVersion: jest.fn(),
   submitCurriculumVersionForReview: jest.fn(),
+  validateCurriculumVersion: jest.fn(),
 }));
 
 const app = express();

@@ -56,7 +56,7 @@ let localAdminFullName = env.devAdmin.fullName;
 let localAdminPassword = env.devAdmin.password;
 
 function shouldUseLocalAdminAuth(): boolean {
-  return !isFirebaseInitialized() && env.firebase.allowLocalFallback && !env.isProductionLike;
+  return (!isFirebaseInitialized() || env.firebase.allowLocalFallback) && !env.isProductionLike;
 }
 
 function buildLocalAdminAuthResponse() {
@@ -93,37 +93,59 @@ function extractClientMetadata(req: Request): { ipAddress?: string; userAgent?: 
 }
 
 export const loginAdmin = asyncHandler(async (req: Request, res: Response) => {
+  const email = String(req.body.email ?? '').trim().toLowerCase();
+  const password = String(req.body.password ?? '');
+
   if (shouldUseLocalAdminAuth()) {
-    const email = String(req.body.email ?? '').trim().toLowerCase();
-    const password = String(req.body.password ?? '');
-
-    if (email !== localAdminEmail.toLowerCase() || password !== localAdminPassword) {
-      throw new AppError('Invalid email or password', 401);
+    const isDefaultAdmin = email === env.devAdmin.email.toLowerCase() && password === env.devAdmin.password;
+    const isLocalAdmin = email === localAdminEmail.toLowerCase() && password === localAdminPassword;
+    if (isDefaultAdmin || isLocalAdmin) {
+      if (isDefaultAdmin) {
+        localAdminEmail = env.devAdmin.email;
+        localAdminFullName = env.devAdmin.fullName;
+      }
+      const response = buildLocalAdminAuthResponse();
+      setAdminCookies(res, response);
+      await recordAdminAuthAudit(req, 'admin_auth.login', response.user.user_id);
+      sendSuccess(res, publicAuthResponse(response), 'Admin login successful');
+      return;
     }
-
-    const response = buildLocalAdminAuthResponse(); setAdminCookies(res, response); await recordAdminAuthAudit(req, 'admin_auth.login', response.user.user_id); sendSuccess(res, publicAuthResponse(response), 'Admin login successful');
-    return;
   }
 
-  const { ipAddress, userAgent } = extractClientMetadata(req);
-  const data = await loginUser(req.body, ipAddress, userAgent);
+  if (isFirebaseInitialized()) {
+    try {
+      const { ipAddress, userAgent } = extractClientMetadata(req);
+      const data = await loginUser(req.body, ipAddress, userAgent);
 
-  if (normalizeUserRole(data.user.role) !== 'admin') {
-    await logoutWithRefreshToken(data.tokens.refresh_token);
-    throw new AppError('Admin access is required', 403);
+      if (normalizeUserRole(data.user.role) !== 'admin') {
+        await logoutWithRefreshToken(data.tokens.refresh_token);
+        throw new AppError('Admin access is required', 403);
+      }
+
+      setAdminCookies(res, data);
+      await recordAdminAuthAudit(req, 'admin_auth.login', data.user.user_id);
+      sendSuccess(res, { user: data.user, expires_in_seconds: data.tokens.expires_in_seconds }, 'Admin login successful');
+      return;
+    } catch (error) {
+      if (error instanceof AppError && error.statusCode === 403) {
+        throw error;
+      }
+    }
   }
 
-  setAdminCookies(res, data); await recordAdminAuthAudit(req, 'admin_auth.login', data.user.user_id); sendSuccess(res, { user: data.user, expires_in_seconds: data.tokens.expires_in_seconds }, 'Admin login successful');
+  throw new AppError('Invalid email or password', 401);
 });
 
 export const loginAdminWithGoogle = asyncHandler(async (req: Request, res: Response) => {
-  if (shouldUseLocalAdminAuth()) {
+  if (!isFirebaseInitialized()) {
     throw new AppError('Configure Firebase credentials before using Google sign-in', 503);
   }
 
   const { ipAddress, userAgent } = extractClientMetadata(req);
   const data = await loginAdminWithFirebaseIdToken(req.body.id_token, ipAddress, userAgent);
-  setAdminCookies(res, data); await recordAdminAuthAudit(req, 'admin_auth.google_login', data.user.user_id); sendSuccess(res, { user: data.user, expires_in_seconds: data.tokens.expires_in_seconds }, 'Admin Google login successful');
+  setAdminCookies(res, data);
+  await recordAdminAuthAudit(req, 'admin_auth.google_login', data.user.user_id);
+  sendSuccess(res, { user: data.user, expires_in_seconds: data.tokens.expires_in_seconds }, 'Admin Google login successful');
 });
 
 export const registerAdmin = asyncHandler(async (req: Request, res: Response) => {
@@ -144,32 +166,43 @@ export const registerAdmin = asyncHandler(async (req: Request, res: Response) =>
 
 export const logoutAdmin = asyncHandler(async (req: Request, res: Response) => {
   const refreshToken = readCookie(req, REFRESH_COOKIE) ?? req.body.refresh_token;
-  if (shouldUseLocalAdminAuth()) {
+  if (localRefreshTokens.has(refreshToken) || !isFirebaseInitialized()) {
     localRefreshTokens.delete(refreshToken);
-    res.clearCookie(ACCESS_COOKIE, { path: '/' }); res.clearCookie(REFRESH_COOKIE, { path: '/' }); res.clearCookie(CSRF_COOKIE, { path: '/' });
-    await recordAdminAuthAudit(req, 'admin_auth.logout', 'local-admin'); sendNoContent(res);
+    res.clearCookie(ACCESS_COOKIE, { path: '/' });
+    res.clearCookie(REFRESH_COOKIE, { path: '/' });
+    res.clearCookie(CSRF_COOKIE, { path: '/' });
+    await recordAdminAuthAudit(req, 'admin_auth.logout', 'local-admin');
+    sendNoContent(res);
     return;
   }
 
   await logoutWithRefreshToken(refreshToken);
   await recordAdminAuthAudit(req, 'admin_auth.logout');
-  res.clearCookie(ACCESS_COOKIE, { path: '/' }); res.clearCookie(REFRESH_COOKIE, { path: '/' }); res.clearCookie(CSRF_COOKIE, { path: '/' });
+  res.clearCookie(ACCESS_COOKIE, { path: '/' });
+  res.clearCookie(REFRESH_COOKIE, { path: '/' });
+  res.clearCookie(CSRF_COOKIE, { path: '/' });
   sendNoContent(res);
 });
 
 export const refreshAdminSession = asyncHandler(async (req: Request, res: Response) => {
   const refreshToken = readCookie(req, REFRESH_COOKIE);
   if (!refreshToken) throw new AppError('Admin refresh session not found', 401);
-  if (shouldUseLocalAdminAuth()) {
-    if (!localRefreshTokens.delete(refreshToken)) throw new AppError('Admin refresh session is expired', 401);
+  if (localRefreshTokens.has(refreshToken)) {
+    localRefreshTokens.delete(refreshToken);
     const data = buildLocalAdminAuthResponse();
     setAdminCookies(res, data);
-    await recordAdminAuthAudit(req, 'admin_auth.refresh', data.user.user_id); sendSuccess(res, publicAuthResponse(data), 'Admin session refreshed');
+    await recordAdminAuthAudit(req, 'admin_auth.refresh', data.user.user_id);
+    sendSuccess(res, publicAuthResponse(data), 'Admin session refreshed');
     return;
+  }
+  if (!isFirebaseInitialized()) {
+    throw new AppError('Admin refresh session is expired', 401);
   }
   const data = await rotateRefreshToken(refreshToken, req.ip, req.header('user-agent'));
   if (normalizeUserRole(data.user.role) !== 'admin') throw new AppError('Admin access is required', 403);
-  setAdminCookies(res, data); await recordAdminAuthAudit(req, 'admin_auth.refresh', data.user.user_id); sendSuccess(res, { user: data.user, expires_in_seconds: data.tokens.expires_in_seconds }, 'Admin session refreshed');
+  setAdminCookies(res, data);
+  await recordAdminAuthAudit(req, 'admin_auth.refresh', data.user.user_id);
+  sendSuccess(res, { user: data.user, expires_in_seconds: data.tokens.expires_in_seconds }, 'Admin session refreshed');
 });
 
 export const requestAdminPasswordReset = asyncHandler(async (req: Request, res: Response) => {
@@ -225,7 +258,7 @@ export const getAdminSession = asyncHandler(async (req: Request, res: Response) 
         user_id: user?.user_id ?? req.user.userId,
         firebase_uid: user?.firebase_uid ?? req.user.uid,
         email: user?.email ?? req.user.email,
-        full_name: user?.full_name,
+        full_name: user?.full_name ?? (req.user.userId === 'local-admin' ? localAdminFullName : 'Administrator'),
         role: user?.role ?? req.user.role,
         profile_image_url: user?.profile_image_url ?? null,
         preferred_language: user?.preferred_language ?? null,

@@ -5,7 +5,11 @@ import { normalizeUserRole } from '../types/user-role';
 import { asyncHandler } from '../utils/asyncHandler';
 import { sendCreated, sendSuccess } from '../utils/ApiResponse';
 import { AppError } from '../utils/AppError';
-import { publishCurriculumVersionToAi, unpublishCurriculumVersionFromAi } from '../services/curriculum-publisher.service';
+import {
+  compileCurriculumVersion,
+  publishCurriculumVersionToAi,
+  unpublishCurriculumVersionFromAi,
+} from '../services/curriculum-publisher.service';
 
 type VersionStatus = 'draft' | 'in_review' | 'published' | 'archived';
 type VersionDocument = {
@@ -55,8 +59,10 @@ async function requirePublishableContent(version: VersionDocument) {
     const topic = await getFirestore().collection('topics').doc(String(content.topic_id)).get();
     if (!topic.exists || topic.data()?.subject_id !== version.subject_id || topic.data()?.grade_level_id !== version.grade_level_id) throw new AppError('Content topic does not belong to the curriculum version', 400);
     const instructionalEnglish = String(content.body ?? content.description ?? content.expression ?? '').trim();
-    const khmerTerms = Array.isArray(content.khmer_terms) ? content.khmer_terms : [];
-    const hasKhmer = khmerTerms.some((term) => term && typeof term === 'object' && String((term as Record<string, unknown>).khmer ?? '').trim());
+    const khmerTerms = Array.isArray(content.khmer_terms) ? content.khmer_terms : (Array.isArray(content.khmerTerms) ? content.khmerTerms : []);
+    const hasKhmer = Array.isArray(khmerTerms)
+      ? khmerTerms.some((term) => term && typeof term === 'object' && String((term as Record<string, unknown>).khmer ?? '').trim())
+      : Boolean(content.khmer_terms && typeof content.khmer_terms === 'object' && Object.keys(content.khmer_terms).length > 0);
     if (!instructionalEnglish || !hasKhmer) throw new AppError('Each lesson needs required English and Khmer instructional fields', 400);
     const key = `${content.topic_id}:${content.kind}:${content.title ?? content.expression ?? doc.id}`.toLowerCase();
     if (seen.has(key)) throw new AppError('Duplicate content IDs or codes found in curriculum version', 400);
@@ -88,10 +94,26 @@ async function transition(req: Request, res: Response, target: 'in_review' | 'pu
   if (target === 'published') { next.published_by = adminId; next.published_at = now; }
   if (target === 'archived') next.rejection_reason = reason;
   if (target === 'published') {
-    const publication = await publishCurriculumVersionToAi(next);
+    let publication;
+    try {
+      publication = await publishCurriculumVersionToAi(next);
+    } catch (err: unknown) {
+      await audit(adminId, 'curriculum_version.publish_failed', id, {
+        error: err instanceof Error ? err.message : String(err),
+        from: version.status,
+      });
+      throw err;
+    }
     await ref.set({ ...next, ai_curriculum_chunk_ids: publication.chunkIds, ai_payload_hash: publication.payloadHash }, { merge: true });
   } else if (target === 'archived' && version.status === 'published') {
-    await unpublishCurriculumVersionFromAi(id);
+    try {
+      await unpublishCurriculumVersionFromAi(id);
+    } catch (err: unknown) {
+      await audit(adminId, 'curriculum_version.unpublish_failed', id, {
+        error: err instanceof Error ? err.message : String(err),
+      });
+      throw err;
+    }
     await ref.set(next, { merge: true });
   } else {
     await ref.set(next, { merge: true });
@@ -112,4 +134,28 @@ export const compareCurriculumVersion = asyncHandler(async (req, res) => {
   assertAdmin(req); const { version } = await getVersion(read(req.params.curriculumVersionId, 'Curriculum version id')); const db = getFirestore(); const [draft, published] = await Promise.all([db.collection('admin_curriculum_content').where('curriculum_version_id', '==', version.curriculum_version_id).get(), db.collection('curriculum_versions').where('grade_level_id', '==', version.grade_level_id).get()]);
   const publishedVersion = published.docs.map((doc) => doc.data() as VersionDocument).find((item) => item.subject_id === version.subject_id && item.status === 'published'); const publishedContent = publishedVersion ? await db.collection('admin_curriculum_content').where('curriculum_version_id', '==', publishedVersion.curriculum_version_id).get() : null; const ids = (snapshot: FirebaseFirestore.QuerySnapshot | null) => new Set(snapshot?.docs.map((doc) => doc.id) ?? []);
   const draftIds = ids(draft); const publishedIds = ids(publishedContent); sendSuccess(res, { curriculum_version_id: version.curriculum_version_id, published_version_id: publishedVersion?.curriculum_version_id ?? null, added_content_ids: [...draftIds].filter((id) => !publishedIds.has(id)), removed_content_ids: [...publishedIds].filter((id) => !draftIds.has(id)), unchanged_content_ids: [...draftIds].filter((id) => publishedIds.has(id)) }, 'Curriculum versions compared');
+});
+
+export const validateCurriculumVersion = asyncHandler(async (req: Request, res: Response) => {
+  assertAdmin(req);
+  const id = read(req.params.curriculumVersionId, 'Curriculum version id');
+  const { version } = await getVersion(id);
+  await requirePublishableContent(version);
+  const compilation = await compileCurriculumVersion(version);
+
+  sendSuccess(
+    res,
+    {
+      valid: true,
+      curriculum_version_id: id,
+      label: version.label,
+      status: version.status,
+      chunk_count: compilation.chunks.length,
+      payload_hash: compilation.payloadHash,
+      chunk_ids: compilation.chunks.map((chunk) => chunk.id),
+      topics: [...new Set(compilation.chunks.map((chunk) => chunk.topic))],
+      warnings: [],
+    },
+    'Curriculum version validation successful'
+  );
 });

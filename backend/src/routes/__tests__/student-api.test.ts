@@ -1,6 +1,6 @@
 import request from 'supertest';
 import { createApp } from '../../app';
-import { getAuth, isFirebaseInitialized } from '../../config/firebase';
+import { getAuth, getFirestore, isFirebaseInitialized } from '../../config/firebase';
 import {
   createCurrentUserProfile,
   getCurrentUserPreferences,
@@ -12,6 +12,7 @@ import {
 
 jest.mock('../../config/firebase', () => ({
   getAuth: jest.fn(),
+  getFirestore: jest.fn(),
   isFirebaseInitialized: jest.fn(() => false),
 }));
 
@@ -47,6 +48,30 @@ const mockedUpdateCurrentUserPreferences = updateCurrentUserPreferences as jest.
 >;
 
 const app = createApp();
+
+function mockUserDocument(uid = 'firebase-uid') {
+  const snapshot = {
+    exists: true,
+    data: () => ({
+      user_id: uid,
+      firebase_uid: uid,
+      full_name: 'Test Student',
+      email: 'student@example.com',
+      role: 'student',
+      account_status: 'active',
+    }),
+  };
+  const doc = jest.fn().mockReturnValue({
+    get: jest.fn().mockResolvedValue(snapshot),
+    set: jest.fn().mockResolvedValue(undefined),
+  });
+  (getFirestore as jest.Mock).mockReturnValue({
+    collection: jest.fn().mockReturnValue({
+      withConverter: jest.fn().mockReturnValue({ doc }),
+      doc,
+    }),
+  } as never);
+}
 
 function mockToken(role = 'student') {
   mockedGetAuth.mockReturnValue({
@@ -89,6 +114,7 @@ describe('student API foundation', () => {
     mockedIsFirebaseInitialized.mockReturnValue(false);
     global.fetch = jest.fn().mockRejectedValue(new Error('AI service unavailable'));
     mockToken();
+    mockUserDocument();
     mockedGetCurrentUserProfile.mockResolvedValue(profileResponse);
     mockedCreateCurrentUserProfile.mockResolvedValue(profileResponse);
     mockedUpdateCurrentUserProfile.mockResolvedValue({

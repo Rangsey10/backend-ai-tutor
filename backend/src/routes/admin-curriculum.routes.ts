@@ -9,6 +9,7 @@ import {
   getAdminGrades,
   getAdminSubjects,
   getAdminTopics,
+  importCurriculumDataset,
   updateAdminContent,
   updateAdminGrade,
   updateAdminSubject,
@@ -33,6 +34,7 @@ import {
   publishCurriculumVersion,
   rejectCurriculumVersion,
   submitCurriculumVersionForReview,
+  validateCurriculumVersion,
 } from '../controllers/curriculum-version.controller';
 import {
   createCurriculumVersionSchema,
@@ -59,6 +61,7 @@ router.patch('/topics/:topicId/status', validate({ params: adminTopicParamsSchem
 router.get('/versions', listCurriculumVersions);
 router.post('/versions', validate({ body: createCurriculumVersionSchema }), createCurriculumVersion);
 router.post('/versions/:curriculumVersionId/submit-review', validate({ params: curriculumVersionParamsSchema, body: lifecycleRequestSchema }), submitCurriculumVersionForReview);
+router.post('/versions/:curriculumVersionId/validate', validate({ params: curriculumVersionParamsSchema }), validateCurriculumVersion);
 router.post('/versions/:curriculumVersionId/publish', validate({ params: curriculumVersionParamsSchema, body: lifecycleRequestSchema }), publishCurriculumVersion);
 router.post('/versions/:curriculumVersionId/reject', validate({ params: curriculumVersionParamsSchema, body: rejectCurriculumVersionSchema }), rejectCurriculumVersion);
 router.post('/versions/:curriculumVersionId/archive', validate({ params: curriculumVersionParamsSchema, body: lifecycleRequestSchema }), archiveCurriculumVersion);
@@ -67,5 +70,6 @@ router.get('/content', getAdminContent);
 router.post('/content', createAdminContent);
 router.put('/content/:contentId', updateAdminContent);
 router.delete('/content/:contentId', deleteAdminContent);
+router.post('/import', importCurriculumDataset);
 
 export default router;

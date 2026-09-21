@@ -1,10 +1,11 @@
 import request from 'supertest';
 import { createApp } from '../../app';
-import { getAuth } from '../../config/firebase';
+import { getAuth, getFirestore } from '../../config/firebase';
 import { listStudentPublishedLessons } from '../../services/published-lesson-catalog.service';
 
 jest.mock('../../config/firebase', () => ({
   getAuth: jest.fn(),
+  getFirestore: jest.fn(),
 }));
 
 jest.mock('../../services/published-lesson-catalog.service', () => ({
@@ -17,7 +18,32 @@ const mockedListLessons = listStudentPublishedLessons as jest.MockedFunction<
 >;
 const app = createApp();
 
+function mockUserDocument(uid = 'student-1', role: 'student' | 'admin' = 'student') {
+  const snapshot = {
+    exists: true,
+    data: () => ({
+      user_id: uid,
+      firebase_uid: uid,
+      full_name: 'Test Student',
+      email: 'student@example.com',
+      role,
+      account_status: 'active',
+    }),
+  };
+  const doc = jest.fn().mockReturnValue({
+    get: jest.fn().mockResolvedValue(snapshot),
+    set: jest.fn().mockResolvedValue(undefined),
+  });
+  (getFirestore as jest.Mock).mockReturnValue({
+    collection: jest.fn().mockReturnValue({
+      withConverter: jest.fn().mockReturnValue({ doc }),
+      doc,
+    }),
+  } as never);
+}
+
 function as(role: 'student' | 'admin') {
+  mockUserDocument('student-1', role);
   mockedGetAuth.mockReturnValue({
     verifyIdToken: jest.fn().mockResolvedValue({
       uid: 'student-1',
@@ -48,6 +74,8 @@ describe('published student lesson catalog route', () => {
         content_type: 'concept',
         difficulty: 'beginner',
         learning_objectives: ['Use inverse operations'],
+        is_available: true,
+        starter_problem: '2x + 1 = 5',
         source_reference: {
           curriculum_version_id: 'version-1',
           curriculum_chunk_id: 'admin.version-1.lesson-1',
