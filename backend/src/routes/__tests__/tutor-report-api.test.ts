@@ -22,7 +22,7 @@ const mockedAuth = getAuth as jest.MockedFunction<typeof getAuth>;
 const mockedCreate = createStudentTutorReport as jest.MockedFunction<typeof createStudentTutorReport>;
 const mockedListReports = listStudentTutorReports as jest.MockedFunction<typeof listStudentTutorReports>;
 const mockedListNotifications = listStudentNotifications as jest.MockedFunction<typeof listStudentNotifications>;
-const app = createApp();
+let app: ReturnType<typeof createApp>;
 
 function mockUserDocument(uid = 'student-a') {
   const snapshot = {
@@ -49,6 +49,7 @@ function mockUserDocument(uid = 'student-a') {
 }
 
 beforeEach(() => {
+  app = createApp();
   jest.clearAllMocks();
   mockUserDocument('student-a');
   mockedAuth.mockReturnValue({ verifyIdToken: jest.fn().mockResolvedValue({ uid: 'student-a', role: 'student' }) } as never);

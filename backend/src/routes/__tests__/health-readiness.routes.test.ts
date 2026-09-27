@@ -11,10 +11,11 @@ jest.mock('../../config/firebase', () => ({
 const mockedIsFirebaseInitialized = isFirebaseInitialized as jest.MockedFunction<
   typeof isFirebaseInitialized
 >;
-const app = createApp();
+let app: ReturnType<typeof createApp>;
 
 describe('backend production readiness', () => {
   beforeEach(() => {
+    app = createApp();
     jest.restoreAllMocks();
     mockedIsFirebaseInitialized.mockReturnValue(true);
   });

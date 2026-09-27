@@ -22,3 +22,4 @@ process.env.DEV_ADMIN_PASSWORD = 'test-only-password';
 process.env.DEV_ADMIN_NAME = 'Test Admin';
 process.env.SEED_ADMIN_EMAIL = '';
 process.env.SEED_ADMIN_NAME = '';
+process.env.REDIS_ENABLED = 'false';

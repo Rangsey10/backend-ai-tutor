@@ -64,11 +64,29 @@ function cleanEnvValue(value: string | undefined): string {
   return (value ?? '').trim().replace(/^["']|["'],?$/g, '');
 }
 
+export function validateVisualTutorInternalToken(
+  token: string | undefined,
+  isProductionLike: boolean
+): void {
+  const cleaned = cleanEnvValue(token);
+  if (!isProductionLike) return;
+  if (!cleaned) {
+    throw new Error('Missing required environment variable: VISUAL_TUTOR_INTERNAL_TOKEN');
+  }
+  const lower = cleaned.toLowerCase();
+  if (cleaned.length < 32 || lower.includes('replace_with') || lower.includes('dev-token')) {
+    throw new Error(
+      'VISUAL_TUTOR_INTERNAL_TOKEN must be a unique 32+ character production secret and not a placeholder'
+    );
+  }
+}
+
 const corsOrigins = parseCorsOrigins(process.env.CORS_ALLOWED_ORIGINS);
 if (isProductionLike && (corsOrigins.length === 0 || corsOrigins.includes('*'))) {
   throw new Error('CORS_ALLOWED_ORIGINS must be a non-wildcard allow-list in staging and production');
 }
 if (isProductionLike) {
+  validateVisualTutorInternalToken(process.env.VISUAL_TUTOR_INTERNAL_TOKEN, true);
   const jwtSecret = cleanEnvValue(process.env.JWT_ACCESS_SECRET);
   if (jwtSecret.length < 32 || jwtSecret.includes('change-me')) throw new Error('JWT_ACCESS_SECRET must be a unique 32+ character production secret');
   if (!cleanEnvValue(process.env.FIREBASE_PROJECT_ID) || !cleanEnvValue(process.env.FIREBASE_CLIENT_EMAIL) || !cleanEnvValue(process.env.FIREBASE_PRIVATE_KEY)) throw new Error('Firebase Admin credentials are required in staging and production');
@@ -142,9 +160,7 @@ export const env = {
   isDev,
 };
 
-if (env.isProductionLike && !env.aiService.visualTutorInternalToken) {
-  throw new Error('Missing required environment variable: VISUAL_TUTOR_INTERNAL_TOKEN');
-}
+validateVisualTutorInternalToken(env.aiService.visualTutorInternalToken, env.isProductionLike);
 
 if (
   env.isProductionLike &&

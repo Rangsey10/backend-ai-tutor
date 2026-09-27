@@ -43,9 +43,10 @@ const mockedTutorSessionService = tutorSessionService as jest.Mocked<typeof tuto
 const mockedAssertStudentAiAccess = assertStudentAiAccess as jest.MockedFunction<typeof assertStudentAiAccess>;
 
 describe('tutor session routes', () => {
-  const app = createApp();
+  let app: ReturnType<typeof createApp>;
 
   beforeEach(() => {
+    app = createApp();
     jest.clearAllMocks();
     mockedAssertStudentAiAccess.mockResolvedValue(undefined);
   });

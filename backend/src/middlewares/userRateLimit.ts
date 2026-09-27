@@ -1,39 +1,61 @@
 import type { NextFunction, Request, Response } from 'express';
 import { AppError } from '../utils/AppError';
+import { evaluateRateLimit } from '../utils/rate-limiter';
+import { getRedisClient } from '../config/redis';
 
-type RateLimitEntry = { count: number; resetAt: number };
-const buckets = new Map<string, RateLimitEntry>();
+export interface RateLimitOptions {
+  redisClient?: any;
+}
 
 /**
- * Small in-process safety limit for authenticated expensive operations. Deployments
- * with multiple gateway instances should also enforce the equivalent limit at the
- * edge; this remains a safe local and single-instance backstop.
+ * Redis-backed rate limiter for authenticated operations.
+ * State is shared across gateway replicas via Redis.
+ * If Redis is unavailable, fails OPEN and logs a warning so students are never locked out.
  */
-export function userRateLimit(operation: string, maxRequests: number, windowMs: number) {
-  return (req: Request, res: Response, next: NextFunction): void => {
+export function userRateLimit(
+  operation: string,
+  maxRequests: number,
+  windowMs: number,
+  options?: RateLimitOptions
+) {
+  return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     const userId = req.user?.uid;
     if (!userId) {
       next(new AppError('Authentication required', 401));
       return;
     }
-    const now = Date.now();
-    const key = `${operation}:${userId}`;
-    const current = buckets.get(key);
-    const entry =
-      !current || current.resetAt <= now ? { count: 0, resetAt: now + windowMs } : current;
-    entry.count += 1;
-    buckets.set(key, entry);
+
+    const key = `ratelimit:user:${operation}:${userId}`;
+    const result = await evaluateRateLimit(
+      key,
+      maxRequests,
+      windowMs,
+      operation,
+      options?.redisClient
+    );
+
     res.setHeader('X-RateLimit-Limit', String(maxRequests));
-    res.setHeader('X-RateLimit-Remaining', String(Math.max(0, maxRequests - entry.count)));
-    if (entry.count > maxRequests) {
-      res.setHeader('Retry-After', String(Math.ceil((entry.resetAt - now) / 1000)));
+    res.setHeader('X-RateLimit-Remaining', String(result.remaining));
+
+    if (!result.allowed) {
+      res.setHeader('Retry-After', String(result.retryAfter));
       next(new AppError('Too many requests. Please try again shortly.', 429, true, 'RATE_LIMITED'));
       return;
     }
+
     next();
   };
 }
 
-export function clearUserRateLimits(): void {
-  buckets.clear();
+export async function clearUserRateLimits(customClient?: any): Promise<void> {
+  const client = customClient !== undefined ? customClient : getRedisClient();
+  if (!client) return;
+  try {
+    const keys = await client.keys('ratelimit:user:*');
+    if (keys && keys.length > 0) {
+      await client.del(...keys);
+    }
+  } catch {
+    // Fail silently during cleanup if Redis is offline
+  }
 }

@@ -47,7 +47,7 @@ const mockedUpdateCurrentUserPreferences = updateCurrentUserPreferences as jest.
   typeof updateCurrentUserPreferences
 >;
 
-const app = createApp();
+let app: ReturnType<typeof createApp>;
 
 function mockUserDocument(uid = 'firebase-uid') {
   const snapshot = {
@@ -110,6 +110,7 @@ const profileResponse: UserProfileResponse = {
 
 describe('student API foundation', () => {
   beforeEach(() => {
+    app = createApp();
     jest.clearAllMocks();
     mockedIsFirebaseInitialized.mockReturnValue(false);
     global.fetch = jest.fn().mockRejectedValue(new Error('AI service unavailable'));

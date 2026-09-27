@@ -45,12 +45,15 @@ jest.mock('../../controllers/curriculum-version.controller', () => ({
   validateCurriculumVersion: jest.fn(),
 }));
 
-const app = express();
-app.use(express.json());
-app.use('/admin/curriculum', router);
-
 describe('Admin curriculum topic route wiring', () => {
-  beforeEach(() => jest.clearAllMocks());
+  let app: express.Express;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    app = express();
+    app.use(express.json());
+    app.use('/admin/curriculum', router);
+  });
 
   it('wires list, create, update, and non-destructive status endpoints', async () => {
     await request(app).get('/admin/curriculum/topics').expect(200);

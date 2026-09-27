@@ -34,9 +34,10 @@ jest.mock('../../services/auth.service', () => ({
 const mockedAuthService = authService as jest.Mocked<typeof authService>;
 
 describe('auth routes', () => {
-  const app = createApp();
+  let app: ReturnType<typeof createApp>;
 
   beforeEach(() => {
+    app = createApp();
     jest.clearAllMocks();
   });
 

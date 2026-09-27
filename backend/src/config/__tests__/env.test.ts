@@ -1,4 +1,4 @@
-import { allowsDemoAuthentication, allowsDevelopmentFallbacks } from '../env';
+import { allowsDemoAuthentication, allowsDevelopmentFallbacks, validateVisualTutorInternalToken } from '../env';
 
 describe('environment fallback policy', () => {
   it('never enables demo or in-memory fallbacks in staging or production', () => {
@@ -29,3 +29,22 @@ describe('environment fallback policy', () => {
     expect(allowsDevelopmentFallbacks('staging', true, 'staging')).toBe(false);
   });
 });
+
+describe('visual tutor internal token production guard', () => {
+  it('rejects missing, short, or placeholder tokens in staging and production', () => {
+    expect(() => validateVisualTutorInternalToken('', true)).toThrow();
+    expect(() => validateVisualTutorInternalToken('short', true)).toThrow();
+    expect(() => validateVisualTutorInternalToken('replace_with_a_unique_high_entropy_secret', true)).toThrow();
+    expect(() => validateVisualTutorInternalToken('visual-tutor-dev-token-long-enough-32-chars', true)).toThrow();
+  });
+
+  it('accepts valid 32+ character secrets in staging and production', () => {
+    expect(() => validateVisualTutorInternalToken('a'.repeat(32), true)).not.toThrow();
+  });
+
+  it('permits development tokens when not in production or staging', () => {
+    expect(() => validateVisualTutorInternalToken('replace_with_a_unique_high_entropy_secret', false)).not.toThrow();
+    expect(() => validateVisualTutorInternalToken('dev-token', false)).not.toThrow();
+  });
+});
+

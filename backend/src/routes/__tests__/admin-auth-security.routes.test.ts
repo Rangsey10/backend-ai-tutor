@@ -34,7 +34,7 @@ const mockedIsFirebaseInitialized = isFirebaseInitialized as jest.MockedFunction
 >;
 const mockedAuthService = authService as jest.Mocked<typeof authService>;
 const mockedLogger = logger as jest.Mocked<typeof logger>;
-const app = createApp();
+let app: ReturnType<typeof createApp>;
 
 const adminAuthResponse = {
   user: {
@@ -63,6 +63,7 @@ function localAccessCookie(role: 'admin' | 'administrator' | 'student'): string 
 
 describe('Admin cookie authentication security', () => {
   beforeEach(() => {
+    app = createApp();
     jest.clearAllMocks();
     mockedIsFirebaseInitialized.mockReturnValue(false);
     mockedGetFirestore.mockReturnValue({

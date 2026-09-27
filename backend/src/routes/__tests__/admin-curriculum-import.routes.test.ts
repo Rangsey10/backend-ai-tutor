@@ -42,12 +42,15 @@ jest.mock('../../controllers/curriculum-version.controller', () => ({
   validateCurriculumVersion: jest.fn(),
 }));
 
-const app = express();
-app.use(express.json());
-app.use('/admin/curriculum', router);
-
 describe('Admin curriculum import route', () => {
-  beforeEach(() => jest.clearAllMocks());
+  let app: express.Express;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    app = express();
+    app.use(express.json());
+    app.use('/admin/curriculum', router);
+  });
 
   it('routes POST /admin/curriculum/import to importCurriculumDataset', async () => {
     const res = await request(app)

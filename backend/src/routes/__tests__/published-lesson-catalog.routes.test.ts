@@ -16,7 +16,7 @@ const mockedGetAuth = getAuth as jest.MockedFunction<typeof getAuth>;
 const mockedListLessons = listStudentPublishedLessons as jest.MockedFunction<
   typeof listStudentPublishedLessons
 >;
-const app = createApp();
+let app: ReturnType<typeof createApp>;
 
 function mockUserDocument(uid = 'student-1', role: 'student' | 'admin' = 'student') {
   const snapshot = {
@@ -55,6 +55,7 @@ function as(role: 'student' | 'admin') {
 
 describe('published student lesson catalog route', () => {
   beforeEach(() => {
+    app = createApp();
     jest.clearAllMocks();
     as('student');
     mockedListLessons.mockResolvedValue([

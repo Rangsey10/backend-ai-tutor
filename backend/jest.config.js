@@ -10,5 +10,6 @@ module.exports = {
   moduleNameMapper: pathsToModuleNameMapper(compilerOptions.paths, { prefix: '<rootDir>/src/' }),
   moduleFileExtensions: ['ts', 'js', 'json'],
   setupFiles: ['<rootDir>/src/test/setup-env.ts'],
+  setupFilesAfterEnv: ['<rootDir>/src/test/setup-after-env.ts'],
   clearMocks: true,
 };

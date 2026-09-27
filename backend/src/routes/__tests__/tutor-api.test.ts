@@ -55,7 +55,7 @@ const mockedTranscribeTutorVoice = transcribeTutorVoice as jest.MockedFunction<t
 const mockedAssertStudentAiAccess = assertStudentAiAccess as jest.MockedFunction<typeof assertStudentAiAccess>;
 const mockedGetStudentAiRestrictionStatus = getStudentAiRestrictionStatus as jest.MockedFunction<typeof getStudentAiRestrictionStatus>;
 
-const app = createApp();
+let app: ReturnType<typeof createApp>;
 
 /**
  * authenticate() falls back to Firebase and then auto-provisions the Firestore
@@ -122,6 +122,7 @@ function wavBytes(seconds = 1): Buffer {
 
 describe('Visual Tutor AI-service proxy routes', () => {
   beforeEach(() => {
+    app = createApp();
     jest.clearAllMocks();
     clearUserRateLimits();
     mockToken();

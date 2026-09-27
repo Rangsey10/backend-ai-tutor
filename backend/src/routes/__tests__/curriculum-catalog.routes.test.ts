@@ -16,9 +16,12 @@ jest.mock('../../config/firebase', () => ({
   isFirebaseInitialized: jest.fn(() => true),
 }));
 
-const app = createApp();
+let app: ReturnType<typeof createApp>;
 
 describe('GET /api/v1/curriculum/catalog', () => {
+  beforeEach(() => {
+    app = createApp();
+  });
   it('returns curriculum catalog with Grade 10, 11, and 12 STEM topics', async () => {
     const res = await request(app).get('/api/v1/curriculum/catalog').expect(200);
 

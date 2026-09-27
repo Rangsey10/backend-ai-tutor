@@ -30,7 +30,7 @@ const mockedSubmitQuizAnswers = submitQuizAnswers as jest.MockedFunction<
   typeof submitQuizAnswers
 >;
 
-const app = createApp();
+let app: ReturnType<typeof createApp>;
 
 function mockUserDocument(uid = 'firebase-uid') {
   const snapshot = {
@@ -115,6 +115,7 @@ const attemptResult: QuizAttemptResult = {
 
 describe('student quiz API', () => {
   beforeEach(() => {
+    app = createApp();
     jest.clearAllMocks();
     mockToken();
     mockUserDocument();

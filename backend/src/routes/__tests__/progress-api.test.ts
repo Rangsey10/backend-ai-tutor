@@ -62,7 +62,7 @@ const mockedGetWeakTopicSummary = getWeakTopicSummary as jest.MockedFunction<
   typeof getWeakTopicSummary
 >;
 
-const app = createApp();
+let app: ReturnType<typeof createApp>;
 
 function mockUserDocument(uid = 'firebase-uid') {
   const snapshot = {
@@ -104,6 +104,7 @@ function authHeader(token = 'valid-token') {
 
 describe('student progress API', () => {
   beforeEach(() => {
+    app = createApp();
     jest.clearAllMocks();
     mockToken();
     mockUserDocument();
