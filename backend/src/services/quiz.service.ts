@@ -10,6 +10,7 @@ import type {
   GetQuizByTopicQueryInput,
   SubmitQuizRequestInput,
 } from '../schemas/quiz-request.schema';
+import { logger } from '../utils/logger';
 import { AppError } from '../utils/AppError';
 
 type QuizOptionResponse = {
@@ -53,6 +54,13 @@ type InternalQuiz = Omit<QuizResponse, 'questions'> & {
   provenance?: Record<string, unknown>;
 };
 
+/** How a maths answer was judged, so the admin review queue can audit it. */
+export type AnswerVerification = {
+  source: 'verifier' | 'fallback_exact_match' | 'option_match';
+  status: 'equivalent' | 'different' | 'cannot_verify' | 'not_applicable';
+  needs_review: boolean;
+};
+
 type ScoredAnswer = {
   question_id: string;
   selected_option_id: string | null;
@@ -60,6 +68,7 @@ type ScoredAnswer = {
   is_correct: boolean;
   score_awarded: number;
   feedback: string;
+  verification: AnswerVerification;
 };
 
 export type QuizAttemptResult = {
@@ -307,6 +316,89 @@ function normalizeAnswer(value: string): string {
   return value.trim().toLowerCase().replace(/\s+/g, ' ');
 }
 
+type VerifierVerdict = {
+  status: 'equivalent' | 'different' | 'cannot_verify';
+  equivalent: boolean;
+};
+
+/**
+ * Ask the AI service whether two answers mean the same thing.
+ *
+ * Returns null when the verifier could not be reached or gave an unusable
+ * answer. A null must never be read as "the student was wrong".
+ */
+async function askAnswerVerifier(
+  submitted: string,
+  expected: string
+): Promise<VerifierVerdict | null> {
+  const token =
+    env.aiService.visualTutorInternalToken ||
+    (env.nodeEnv === 'test' ? 'test-internal-token' : '');
+  if (!token) return null;
+
+  try {
+    const url = new URL('/api/v1/math/verify/answer', env.aiService.baseUrl);
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-visual-tutor-internal-token': token,
+      },
+      body: JSON.stringify({ submitted_answer: submitted, expected_answer: expected }),
+    });
+    if (!response.ok) {
+      logger.warn('Answer verifier rejected a grading request', { status: response.status });
+      return null;
+    }
+    const body = (await response.json()) as Partial<VerifierVerdict>;
+    if (
+      typeof body?.equivalent !== 'boolean' ||
+      !['equivalent', 'different', 'cannot_verify'].includes(String(body?.status))
+    ) {
+      return null;
+    }
+    return { status: body.status as VerifierVerdict['status'], equivalent: body.equivalent };
+  } catch (error) {
+    logger.warn('Answer verifier unreachable; grading falls back to exact match', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return null;
+  }
+}
+
+/**
+ * Grade one free-text maths answer.
+ *
+ * The verifier decides when it can. When it cannot — it is down, or the notation
+ * is outside what it handles — we fall back to the string comparison and flag the
+ * answer for review rather than marking a possibly-correct student wrong. The
+ * fallback can only award a mark, never take one away that the verifier gave.
+ */
+async function gradeFreeTextAnswer(
+  submitted: string,
+  expected: string
+): Promise<{ isCorrect: boolean; verification: AnswerVerification }> {
+  const stringMatch = answersAreEquivalent(submitted, expected);
+  const verdict = await askAnswerVerifier(submitted, expected);
+
+  if (verdict && verdict.status !== 'cannot_verify') {
+    return {
+      isCorrect: verdict.equivalent,
+      verification: { source: 'verifier', status: verdict.status, needs_review: false },
+    };
+  }
+
+  return {
+    isCorrect: stringMatch,
+    verification: {
+      source: 'fallback_exact_match',
+      status: 'cannot_verify',
+      // A string mismatch here is unproven, so a human should look at it.
+      needs_review: !stringMatch || verdict?.status === 'cannot_verify',
+    },
+  };
+}
+
 function answersAreEquivalent(submitted: string, expected: string): boolean {
   const left = normalizeAnswer(submitted).replace(/\s/g, '');
   const right = normalizeAnswer(expected).replace(/\s/g, '');
@@ -396,13 +488,13 @@ export async function createOrRetrieveQuiz(userId: string, payload: CreateQuizRe
   return publicQuiz(generated);
 }
 
-function scoreSubmittedAnswers(
+async function scoreSubmittedAnswers(
   quiz: InternalQuiz,
   payload: SubmitQuizRequestInput
-): ScoredAnswer[] {
+): Promise<ScoredAnswer[]> {
   const seenQuestionIds = new Set<string>();
 
-  return payload.answers.map((answer) => {
+  const scored = payload.answers.map(async (answer) => {
     if (seenQuestionIds.has(answer.question_id)) {
       throw new AppError(
         'Duplicate answer submitted for a quiz question',
@@ -428,10 +520,21 @@ function scoreSubmittedAnswers(
 
     const submittedAnswer = answer.answer ?? '';
     const selectedOptionId = answer.selected_option_id ?? null;
-    const isCorrect =
-      question.question_type === 'multiple_choice'
-        ? selectedOptionId === question.correct_option_id
-        : answersAreEquivalent(submittedAnswer, question.correct_answer ?? '');
+
+    let isCorrect: boolean;
+    let verification: AnswerVerification;
+    if (question.question_type === 'multiple_choice') {
+      isCorrect = selectedOptionId === question.correct_option_id;
+      verification = {
+        source: 'option_match',
+        status: 'not_applicable',
+        needs_review: false,
+      };
+    } else {
+      const graded = await gradeFreeTextAnswer(submittedAnswer, question.correct_answer ?? '');
+      isCorrect = graded.isCorrect;
+      verification = graded.verification;
+    }
 
     return {
       question_id: question.question_id,
@@ -440,8 +543,11 @@ function scoreSubmittedAnswers(
       is_correct: isCorrect,
       score_awarded: isCorrect ? 1 : 0,
       feedback: isCorrect ? 'Correct.' : question.explanation,
+      verification,
     };
   });
+
+  return Promise.all(scored);
 }
 
 async function persistAttempt(result: QuizAttemptResult): Promise<void> {
@@ -485,6 +591,7 @@ async function persistAttempt(result: QuizAttemptResult): Promise<void> {
           is_partially_correct: false,
           score_awarded: answer.score_awarded,
           feedback: answer.feedback,
+          verification: answer.verification,
           created_at: submittedAt,
         };
         return answerRef.set(firestoreAnswer);
@@ -510,7 +617,7 @@ export async function submitQuizAnswers(
 ): Promise<QuizAttemptResult> {
   const quiz = (await loadPrivateQuiz(userId, quizId)) ?? (allowSeededQuizData() ? requireSeededQuiz(quizId) : null);
   if (!quiz) throw new AppError('Quiz not found', 404, true, 'QUIZ_NOT_FOUND');
-  const answers = scoreSubmittedAnswers(quiz, payload);
+  const answers = await scoreSubmittedAnswers(quiz, payload);
   const answeredQuestionIds = new Set(answers.map((answer) => answer.question_id));
   const skippedCount = quiz.questions.filter(
     (question) => !answeredQuestionIds.has(question.question_id)

@@ -109,6 +109,11 @@ const attemptResult: QuizAttemptResult = {
       is_correct: true,
       score_awarded: 1,
       feedback: 'Correct.',
+      verification: {
+        source: 'option_match' as const,
+        status: 'not_applicable' as const,
+        needs_review: false,
+      },
     },
   ],
 };
