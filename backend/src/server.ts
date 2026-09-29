@@ -7,6 +7,13 @@ initFirebase();
 
 const app = createApp();
 
-app.listen(env.port, () => {
-  logger.info(`🚀 Server running on http://localhost:${env.port} [${env.nodeEnv}]`);
-});
+const listening = () =>
+  logger.info(
+    `🚀 Server running on http://${env.bindHost ?? 'localhost'}:${env.port} [${env.nodeEnv}]`
+  );
+
+if (env.bindHost) {
+  app.listen(env.port, env.bindHost, listening);
+} else {
+  app.listen(env.port, listening);
+}

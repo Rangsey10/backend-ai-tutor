@@ -113,6 +113,11 @@ export const env = {
   nodeEnv,
   appEnv,
   port: parseInt(process.env.PORT ?? '4000', 10),
+  // Which interface to accept connections on. Unset keeps Node's default of every
+  // interface, which is what local development wants. A deployment that sits
+  // behind a reverse proxy or tunnel on the same host sets this to 127.0.0.1, so
+  // the gateway is not also reachable from the rest of the network.
+  bindHost: cleanEnvValue(process.env.BIND_HOST) || undefined,
 
   // Firebase Admin SDK
   firebase: {
