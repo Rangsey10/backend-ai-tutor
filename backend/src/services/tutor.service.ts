@@ -181,7 +181,18 @@ function aiServiceAction(payload: TutorTurnRequestInput): string {
   const action = payload.action;
   if (action === 'student_message') {
     const currentState = objectValue(payload.current_state);
-    return currentState?.problem_text ? 'submit_step' : 'submit_problem';
+    if (!currentState?.problem_text) return 'submit_problem';
+    // A typed message while a problem is unsolved is the student working, and it
+    // has to stay a step: a correct step of "3x + 4 = 19" is "3x = 15", which
+    // reads as a new equation but is not one.
+    //
+    // Once the answer is on the board there is no step left to answer, so the
+    // student is moving on. Treating that as a step meant someone who typed a
+    // whole new problem had it graded against the problem they had just
+    // finished -- the board kept showing the old solution, with nothing on
+    // screen to say why.
+    if (currentState.final_answer_revealed === true) return 'submit_problem';
+    return 'submit_step';
   }
   const aliases: Record<string, string> = {
     stuck: 'request_stuck_help',

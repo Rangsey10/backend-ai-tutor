@@ -311,3 +311,51 @@ describe('tutor.service ai-service proxy', () => {
     ]);
   });
 });
+
+describe('a typed message after the answer is on the board', () => {
+  /**
+   * While a problem is unsolved, typed text is the student working, and it must
+   * stay a step: a correct step of "3x + 4 = 19" is "3x = 15", which would
+   * otherwise be mistaken for a brand new equation and restart the problem.
+   *
+   * Once the answer has been revealed there is no step left to answer. A
+   * student typing a whole new problem there had it graded against the problem
+   * they had just finished, and nothing on screen said so -- they saw the old
+   * solution and assumed the tutor was wrong.
+   */
+  const turn = (currentState: Record<string, unknown>) => ({
+    subject: 'Mathematics',
+    message: 'lim (x^2-4)/(x-2) as x approaches 2',
+    action: 'student_message' as const,
+    input_type: 'text' as const,
+    language_mode: 'english' as const,
+    current_state: currentState,
+  });
+
+  const forwardedAction = async (currentState: Record<string, unknown>) => {
+    fetchMock.mockResolvedValue(
+      new Response(JSON.stringify({ schema_version: 2, session_id: 's' }), { status: 200 })
+    );
+    // The stub reply is not a valid public turn envelope, so the call rejects --
+    // but the upstream request has already been made, which is what is under test.
+    await sendTutorTurn('firebase-uid', turn(currentState) as never, {}).catch(() => undefined);
+    const body = JSON.parse(String(fetchMock.mock.calls[0][1].body));
+    return body.action;
+  };
+
+  it('is a new problem once the final answer has been revealed', async () => {
+    expect(
+      await forwardedAction({ problem_text: '3x + 4 = 19', final_answer_revealed: true })
+    ).toBe('submit_problem');
+  });
+
+  it('is still a step while the problem is unsolved', async () => {
+    expect(
+      await forwardedAction({ problem_text: '3x + 4 = 19', final_answer_revealed: false })
+    ).toBe('submit_step');
+  });
+
+  it('is a new problem when no problem is on the board', async () => {
+    expect(await forwardedAction({})).toBe('submit_problem');
+  });
+});
