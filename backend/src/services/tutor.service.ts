@@ -177,6 +177,41 @@ function internalTutorHeaders(userId: string, requestId?: string): Record<string
   };
 }
 
+/**
+ * Whether a typed message is a question about the solution on the board
+ * rather than a new problem to solve.
+ *
+ * This is deliberately narrow. A generic "what is ...?" is far more often a
+ * new question than a question about the working, so only explicit markers
+ * count: naming a step, or opening with a word that asks about something that
+ * already happened. Being wrong in this direction leaves the previous
+ * behaviour intact; being wrong the other way strands the student on a board
+ * that will not explain itself.
+ */
+function asksAboutTheWork(message: unknown): boolean {
+  const text = String(message ?? '').trim().toLowerCase();
+  if (!text) return false;
+
+  // Khmer is written without spaces between words, so these are plain
+  // substring tests. A word boundary would never match.
+  const khmer = ['ពន្យល់', 'ហេតុអ្វី', 'ជំហាន', 'មិនយល់', 'ម្តងទៀត'];
+  if (khmer.some((term) => text.includes(term))) return true;
+
+  // Naming a step is unambiguous: a new problem does not mention one.
+  if (/\bsteps?\b/.test(text)) return true;
+
+  const openers = [
+    'why', 'explain', 'how did', 'how do you', 'how does', 'what do you mean',
+    'i do not understand', "i don't understand", 'i dont understand',
+    'can you explain', 'could you explain', 'tell me more', 'more detail',
+    'say that again', 'show me again',
+  ];
+  if (openers.some((opener) => text.startsWith(opener) || text.includes(opener))) {
+    return true;
+  }
+  return false;
+}
+
 function aiServiceAction(payload: TutorTurnRequestInput): string {
   const action = payload.action;
   if (action === 'student_message') {
@@ -191,7 +226,14 @@ function aiServiceAction(payload: TutorTurnRequestInput): string {
     // whole new problem had it graded against the problem they had just
     // finished -- the board kept showing the old solution, with nothing on
     // screen to say why.
-    if (currentState.final_answer_revealed === true) return 'submit_problem';
+    // ...unless the student is asking about the working that is already on
+    // the board. The AI service answers those as submit_step against the
+    // problem in state, which is what produces "About Step 4 - Cancel the
+    // common factor"; forwarding them as submit_problem made the tutor try to
+    // solve the question itself, so "explain step 2" just re-ran the solver.
+    if (currentState.final_answer_revealed === true && !asksAboutTheWork(payload.message)) {
+      return 'submit_problem';
+    }
     return 'submit_step';
   }
   const aliases: Record<string, string> = {
