@@ -107,6 +107,8 @@ type CurriculumContentDocument = {
   grade_name: string;
   subject_name: string;
   topic_name: string;
+  lesson?: string | null;
+  subtopic?: string | null;
   title?: string | null;
   summary?: string | null;
   body?: string | null;
@@ -115,6 +117,7 @@ type CurriculumContentDocument = {
   variables?: unknown[];
   steps?: unknown[];
   khmer_terms?: unknown[];
+  common_misconceptions?: unknown[];
   prerequisites?: string[];
   tags?: string[];
   status: 'published' | 'draft';
@@ -133,6 +136,7 @@ type AdminCurriculumContent = {
   grade: string;
   subject: string;
   lesson: string;
+  subtopic: string;
   title: string;
   summary: string;
   body: string;
@@ -141,6 +145,7 @@ type AdminCurriculumContent = {
   variables: unknown[];
   steps: unknown[];
   khmerTerms: unknown[];
+  common_misconceptions: unknown[];
   prerequisites: string[];
   tags: string[];
   status: AdminContentStatus;
@@ -199,10 +204,11 @@ function normalizeContentKind(value: unknown): CurriculumContentDocument['kind']
 
 function normalizeContentStatus(value: unknown, fallback: CurriculumContentDocument['status'] = 'draft'): CurriculumContentDocument['status'] {
   if (typeof value !== 'string') return fallback;
-  if (value.toLowerCase() === 'published') {
-    throw new AppError('Content is published only through an approved curriculum version', 400);
+  const normalized = value.toLowerCase();
+  if (normalized === 'published' || normalized === 'draft') {
+    return normalized as CurriculumContentDocument['status'];
   }
-  return 'draft';
+  return fallback;
 }
 
 function readStringArray(value: unknown): string[] {
@@ -271,11 +277,22 @@ function timestampToIso(value: unknown): string | null {
 }
 
 function toAdminGradeLevel(grade: GradeLevel): AdminGradeLevel {
+  const gradeRecord = grade as unknown as Record<string, unknown>;
+  const storedKhmer = typeof gradeRecord.khmer_name === 'string'
+    ? gradeRecord.khmer_name.trim()
+    : '';
+  const defaultKhmer = grade.grade_number === 10
+    ? 'ថ្នាក់ទី១០'
+    : grade.grade_number === 11
+      ? 'ថ្នាក់ទី១១'
+      : grade.grade_number === 12
+        ? 'ថ្នាក់ទី១២'
+        : `Cambodian ${grade.grade_name}`;
   return {
     id: grade.grade_level_id,
     grade_level_id: grade.grade_level_id,
     name: grade.grade_name,
-    khmer: `Cambodian ${grade.grade_name}`,
+    khmer: storedKhmer || defaultKhmer,
     number: String(grade.grade_number),
     description: grade.description ?? defaultGradeDescriptions[grade.grade_number] ?? '',
     status: grade.status === 'inactive' ? 'Inactive' : 'Active',
@@ -359,6 +376,7 @@ function toAdminContent(content: CurriculumContentDocument): AdminCurriculumCont
     grade: content.grade_name,
     subject: content.subject_name,
     lesson: content.topic_name,
+    subtopic: content.subtopic ?? content.lesson ?? content.title ?? '',
     title: content.title ?? '',
     summary: content.summary ?? '',
     body: content.body ?? '',
@@ -367,6 +385,7 @@ function toAdminContent(content: CurriculumContentDocument): AdminCurriculumCont
     variables: content.variables ?? [],
     steps: content.steps ?? [],
     khmerTerms: content.khmer_terms ?? [],
+    common_misconceptions: content.common_misconceptions ?? [],
     prerequisites: content.prerequisites ?? [],
     tags: content.tags ?? [],
     status: content.status === 'published' ? 'Published' : 'Draft',

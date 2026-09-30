@@ -47,14 +47,18 @@ async function getVersion(id: string) {
   return { ref: snapshot.ref, version: snapshot.data() as VersionDocument };
 }
 async function requirePublishableContent(version: VersionDocument) {
-  const contents = await getFirestore().collection('admin_curriculum_content').where('curriculum_version_id', '==', version.curriculum_version_id).get();
+  let contents = await getFirestore().collection('admin_curriculum_content').where('curriculum_version_id', '==', version.curriculum_version_id).get();
+  if (contents.empty && version.curriculum_version_id.endsWith('-draft')) {
+    const baseId = version.curriculum_version_id.replace(/-draft$/, '');
+    contents = await getFirestore().collection('admin_curriculum_content').where('curriculum_version_id', '==', baseId).get();
+  }
   if (contents.empty) throw new AppError('A curriculum version must contain at least one lesson', 400);
   const seen = new Set<string>();
   for (const doc of contents.docs) {
     const content = doc.data() as Record<string, unknown>;
     if (content.grade_level_id !== version.grade_level_id || content.subject_id !== version.subject_id) throw new AppError('Content grade or subject does not match the curriculum version', 400);
     if (!['formula', 'concept', 'example', 'exercise'].includes(String(content.kind))) throw new AppError('Curriculum content has an invalid content type', 400);
-    if (content.status !== 'draft') throw new AppError('Only draft content can be published through a version', 400);
+    if (content.status !== 'draft' && content.status !== 'published') throw new AppError('Only draft or published content can be published through a version', 400);
     if (!String(content.topic_id ?? '').trim() || !String(content.lesson ?? '').trim()) throw new AppError('Curriculum content has an empty lesson', 400);
     const topic = await getFirestore().collection('topics').doc(String(content.topic_id)).get();
     if (!topic.exists || topic.data()?.subject_id !== version.subject_id || topic.data()?.grade_level_id !== version.grade_level_id) throw new AppError('Content topic does not belong to the curriculum version', 400);
@@ -104,7 +108,18 @@ async function transition(req: Request, res: Response, target: 'in_review' | 'pu
       });
       throw err;
     }
-    await ref.set({ ...next, ai_curriculum_chunk_ids: publication.chunkIds, ai_payload_hash: publication.payloadHash }, { merge: true });
+    try {
+      await ref.set({ ...next, ai_curriculum_chunk_ids: publication.chunkIds, ai_payload_hash: publication.payloadHash }, { merge: true });
+    } catch (persistError: unknown) {
+      try {
+        await unpublishCurriculumVersionFromAi(id);
+      } catch (compensationError: unknown) {
+        await audit(adminId, 'curriculum_version.publish_compensation_failed', id, {
+          error: compensationError instanceof Error ? compensationError.message : String(compensationError),
+        });
+      }
+      throw persistError;
+    }
   } else if (target === 'archived' && version.status === 'published') {
     try {
       await unpublishCurriculumVersionFromAi(id);
