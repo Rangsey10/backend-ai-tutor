@@ -134,4 +134,68 @@ describe('quiz.service', () => {
       global.fetch = originalFetch;
     }
   });
+
+  it('generates and scores practice quizzes for all Grade 10-12 STEM curriculum lessons', async () => {
+    const lessonPayloads = [
+      { subject_id: 'physics', topic_id: 'physics-g12-kinematics', grade_level_id: 'grade-12' },
+      { subject_id: 'physics', topic_id: 'physics-g12-optics', grade_level_id: 'grade-12' },
+      { subject_id: 'physics', topic_id: 'physics-g12-thermodynamics', grade_level_id: 'grade-12' },
+      { subject_id: 'physics', topic_id: 'dynamics-g12', grade_level_id: 'grade-12' },
+      { subject_id: 'physics', topic_id: 'work-energy-g12', grade_level_id: 'grade-12' },
+      { subject_id: 'physics', topic_id: 'waves-g12', grade_level_id: 'grade-12' },
+      { subject_id: 'physics', topic_id: 'electromagnetism-g12', grade_level_id: 'grade-12' },
+      { subject_id: 'math', topic_id: 'math-g12-limits-of-functions', grade_level_id: 'grade-12' },
+      { subject_id: 'math', topic_id: 'math-g12-derivatives', grade_level_id: 'grade-12' },
+      { subject_id: 'math', topic_id: 'math-g12-integrals', grade_level_id: 'grade-12' },
+      { subject_id: 'math', topic_id: 'topic-grade-12-mathematics-complex-numbers', grade_level_id: 'grade-12' },
+      { subject_id: 'math', topic_id: 'topic-grade-12-mathematics-differential-equations', grade_level_id: 'grade-12' },
+      { subject_id: 'math', topic_id: 'topic-grade-12-mathematics-function-analysis-and-curve-sketching', grade_level_id: 'grade-12' },
+      { subject_id: 'math', topic_id: 'topic-grade-12-mathematics-probability-and-combinatorics', grade_level_id: 'grade-12' },
+      { subject_id: 'math', topic_id: 'topic-grade-12-mathematics-vectors-in-3d-space-and-conic-sections', grade_level_id: 'grade-12' },
+      { subject_id: 'chemistry', topic_id: 'chem-g12-stoichiometry', grade_level_id: 'grade-12' },
+      { subject_id: 'chemistry', topic_id: 'chem-g12-acids-bases', grade_level_id: 'grade-12' },
+      { subject_id: 'chemistry', topic_id: 'chem-g12-organic', grade_level_id: 'grade-12' },
+      { subject_id: 'chemistry', topic_id: 'kinetics-g12', grade_level_id: 'grade-12' },
+      { subject_id: 'chemistry', topic_id: 'equilibrium-g12', grade_level_id: 'grade-12' },
+      { subject_id: 'math', topic_id: 'math-g11-trigonometry', grade_level_id: 'grade-11' },
+      { subject_id: 'physics', topic_id: 'physics-g11-newton-laws', grade_level_id: 'grade-11' },
+      { subject_id: 'chemistry', topic_id: 'chem-g11-solutions-molarity', grade_level_id: 'grade-11' },
+      { subject_id: 'physics', topic_id: 'physics-g10-uniform-motion', grade_level_id: 'grade-10' },
+      { subject_id: 'chemistry', topic_id: 'chem-g10-atomic-structure', grade_level_id: 'grade-10' },
+    ];
+
+    for (const item of lessonPayloads) {
+      const quiz = await createOrRetrieveQuiz('student-stem', {
+        subject_id: item.subject_id,
+        topic_id: item.topic_id,
+        grade_level_id: item.grade_level_id,
+        difficulty_level: 'beginner',
+        tutor_session_id: `lesson-${item.topic_id}`,
+        skill_tags: [],
+        learning_goals: [],
+        misconceptions: [],
+        hint_count: 0,
+        stuck_count: 0,
+        verification_results: [],
+        verification_evidence: [],
+      });
+
+      expect(quiz.topic_id).toBe(item.topic_id);
+      expect(quiz.total_questions).toBe(3);
+      expect(quiz.questions).toHaveLength(3);
+      expect(quiz.questions[0]).not.toHaveProperty('correct_option_id');
+      expect(quiz.questions[0]).not.toHaveProperty('correct_answer');
+    }
+
+    const kinematicsAttempt = await submitQuizAnswers('student-stem', 'quiz-grade-12-kinematics', {
+      answers: [
+        { question_id: 'kin-q1', answer: '10' },
+        { question_id: 'kin-q2', answer: '25' },
+        { question_id: 'kin-q3', selected_option_id: 'kin-q3-a' },
+      ],
+    });
+    expect(kinematicsAttempt.score).toBe(100);
+    expect(kinematicsAttempt.correct_count).toBe(3);
+  });
 });
+
