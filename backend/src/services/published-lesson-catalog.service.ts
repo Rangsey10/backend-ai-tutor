@@ -49,17 +49,71 @@ function allowedDifficulty(value: unknown): StudentPublishedLesson['difficulty']
   return value === 'intermediate' || value === 'advanced' ? value : 'beginner';
 }
 
+function canonicalSubjectId(rawSubjectId: string, rawSubjectName = ''): string {
+  const combined = `${rawSubjectId} ${rawSubjectName}`.toLowerCase();
+  if (combined.includes('chem')) return 'chemistry';
+  if (combined.includes('phys')) return 'physics';
+  if (combined.includes('math')) return 'math';
+  return rawSubjectId;
+}
+
 /**
  * Student-facing curriculum projection. It intentionally never returns lesson
  * bodies, worked solutions, author/reviewer fields, audit history, or arbitrary
  * content metadata. The Tutor retrieves the published version server-side.
  */
+let cachedAllLessons: StudentPublishedLesson[] | null = null;
+let cachedAllLessonsExpiry = 0;
+const LESSON_CACHE_TTL_MS = 5 * 60 * 1000;
+
+export function clearPublishedLessonCatalogCache(): void {
+  cachedAllLessons = null;
+  cachedAllLessonsExpiry = 0;
+}
+
+function filterPublishedLessons(
+  lessons: StudentPublishedLesson[],
+  query: ListPublishedLessonsQuery
+): StudentPublishedLesson[] {
+  const qSearch = (query.search || '').trim().toLowerCase();
+  return lessons
+    .filter((lesson) => {
+      if (query.grade_level_id && lesson.grade_level_id !== query.grade_level_id) return false;
+      if (
+        query.subject_id &&
+        lesson.subject_id !== query.subject_id &&
+        canonicalSubjectId(query.subject_id) !== canonicalSubjectId(lesson.subject_id)
+      ) {
+        return false;
+      }
+      if (query.topic_id && lesson.topic_id !== query.topic_id) return false;
+      if (qSearch) {
+        const searchable = `${lesson.title} ${lesson.topic_name} ${lesson.topic_khmer_name ?? ''} ${lesson.subject_name} ${lesson.description ?? ''}`.toLowerCase();
+        if (!searchable.includes(qSearch)) return false;
+      }
+      return true;
+    })
+    .sort(
+      (a, b) =>
+        a.grade_number - b.grade_number ||
+        a.subject_name.localeCompare(b.subject_name) ||
+        a.topic_name.localeCompare(b.topic_name) ||
+        a.title.localeCompare(b.title)
+    );
+}
+
 export async function listStudentPublishedLessons(
   query: ListPublishedLessonsQuery = {}
 ): Promise<StudentPublishedLesson[]> {
-  const db = getFirestore();
-  const versions = await db.collection('curriculum_versions').where('status', '==', 'published').get();
+  const now = Date.now();
+  if (process.env.NODE_ENV !== 'test' && cachedAllLessons && now < cachedAllLessonsExpiry) {
+    return filterPublishedLessons(cachedAllLessons, query);
+  }
+
   const rows: StudentPublishedLesson[] = [];
+  try {
+    const db = getFirestore();
+    const versions = await db.collection('curriculum_versions').where('status', '==', 'published').get();
 
   for (const versionDoc of versions.docs) {
     const version = versionDoc.data() as FirestoreRow;
@@ -68,7 +122,13 @@ export async function listStudentPublishedLessons(
     const versionId = text(version.curriculum_version_id, versionDoc.id);
     if (!gradeLevelId || !subjectId || !versionId) continue;
     if (query.grade_level_id && query.grade_level_id !== gradeLevelId) continue;
-    if (query.subject_id && query.subject_id !== subjectId) continue;
+    if (
+      query.subject_id &&
+      query.subject_id !== subjectId &&
+      canonicalSubjectId(query.subject_id) !== canonicalSubjectId(subjectId)
+    ) {
+      continue;
+    }
 
     const [gradeDoc, subjectDoc, contents] = await Promise.all([
       db.collection('grade_levels').doc(gradeLevelId).get(),
@@ -81,7 +141,11 @@ export async function listStudentPublishedLessons(
     const gradeNumber = Number(grade.grade_number);
     if (![10, 11, 12].includes(gradeNumber)) continue;
 
-    for (const contentDoc of contents.docs) {
+    const normalizedSubjectId = canonicalSubjectId(subjectId, text(subject.subject_name));
+    const primaryDocs = contents.docs.filter((d) => (d.data() as FirestoreRow)?.is_lesson_entry === true);
+    const lessonDocs = primaryDocs.length > 0 ? primaryDocs : contents.docs;
+
+    for (const contentDoc of lessonDocs) {
       const content = contentDoc.data() as FirestoreRow;
       if (content.status !== 'draft' && content.status !== 'published') continue;
       const topicId = text(content.topic_id);
@@ -91,21 +155,22 @@ export async function listStudentPublishedLessons(
       if (!topicDoc.exists || topic?.status !== 'active' || text(topic.grade_level_id) !== gradeLevelId || text(topic.subject_id) !== subjectId) continue;
       const title = text(content.title, text(topic.topic_name, 'Lesson'));
       const topicName = text(topic.topic_name, 'Topic');
-      const searchable = `${title} ${topicName} ${text(subject.subject_name)}`.toLowerCase();
+      const topicKhmerName = text(topic.khmer_name);
+      const searchable = `${title} ${topicName} ${topicKhmerName} ${text(subject.subject_name)}`.toLowerCase();
       if (query.search && !searchable.includes(query.search.toLowerCase())) continue;
-      const isAvailable = VERIFIED_SOLVER_TOPICS.has(topicId.toLowerCase()) || Boolean(content.is_available);
-      const starterProblem = text(content.starter_problem) || (isAvailable ? defaultStarterFor(topicId) : null);
+      const isAvailable = VERIFIED_SOLVER_TOPICS.has(topicId.toLowerCase()) || Boolean(content.is_available) || Boolean(topic.starter_problem);
+      const starterProblem = text(content.starter_problem) || text(topic.starter_problem) || (isAvailable ? defaultStarterFor(topicId) : null);
       rows.push({
         lesson_id: text(content.content_id, contentDoc.id),
         curriculum_version_id: versionId,
         grade_level_id: gradeLevelId,
         grade_number: gradeNumber,
         grade_name: text(grade.grade_name, `Grade ${gradeNumber}`),
-        subject_id: subjectId,
+        subject_id: normalizedSubjectId,
         subject_name: text(subject.subject_name, 'Subject'),
         topic_id: topicId,
         topic_name: topicName,
-        topic_khmer_name: text(topic.khmer_name) || null,
+        topic_khmer_name: topicKhmerName || null,
         title,
         description: text(content.summary) || text(topic.description) || null,
         content_type: allowedKind(content.kind),
@@ -117,30 +182,28 @@ export async function listStudentPublishedLessons(
           curriculum_version_id: versionId,
           curriculum_chunk_id: `admin.${versionId}.${contentDoc.id}`,
           grade_level_id: gradeLevelId,
-          subject_id: subjectId,
+          subject_id: normalizedSubjectId,
           topic_id: topicId,
         },
       });
     }
   }
 
-  if (rows.length === 0) {
-    const qSearch = (query.search || '').trim().toLowerCase();
-    return defaultGrade12PublishedLessons
-      .filter((lesson) => {
-        if (query.grade_level_id && lesson.grade_level_id !== query.grade_level_id) return false;
-        if (query.subject_id && lesson.subject_id !== query.subject_id) return false;
-        if (query.topic_id && lesson.topic_id !== query.topic_id) return false;
-        if (qSearch) {
-          const searchable = `${lesson.title} ${lesson.topic_name} ${lesson.topic_khmer_name ?? ''} ${lesson.subject_name} ${lesson.description ?? ''}`.toLowerCase();
-          if (!searchable.includes(qSearch)) return false;
-        }
-        return true;
-      })
-      .sort((a, b) => a.grade_number - b.grade_number || a.subject_name.localeCompare(b.subject_name) || a.topic_name.localeCompare(b.topic_name) || a.title.localeCompare(b.title));
+    if (rows.length > 0) {
+      if (process.env.NODE_ENV !== 'test' && !query.grade_level_id && !query.subject_id && !query.topic_id && !query.search) {
+        cachedAllLessons = rows;
+        cachedAllLessonsExpiry = now + LESSON_CACHE_TTL_MS;
+      }
+      return filterPublishedLessons(rows, query);
+    }
+  } catch (error) {
+    console.warn('[listStudentPublishedLessons] Firestore query failed; using fallback or cached lessons:', (error as Error)?.message || error);
   }
 
-  return rows.sort((a, b) => a.grade_number - b.grade_number || a.subject_name.localeCompare(b.subject_name) || a.topic_name.localeCompare(b.topic_name) || a.title.localeCompare(b.title));
+  const baseLessons = (process.env.NODE_ENV !== 'test' && cachedAllLessons && cachedAllLessons.length > 0)
+    ? cachedAllLessons
+    : defaultGrade12PublishedLessons;
+  return filterPublishedLessons(baseLessons, query);
 }
 
 const VERIFIED_SOLVER_TOPICS = new Set([

@@ -164,10 +164,9 @@ async function persistProgressEvent(event: StoredProgressEvent): Promise<void> {
       firestore_message:
         typeof firestoreError.message === 'string' ? firestoreError.message : 'Unknown Firestore error',
     });
-    if (!env.firebase.allowLocalFallback || env.isProductionLike) {
-      throw new Error('Firestore progress persistence is unavailable');
-    }
-    // Local demo mode intentionally keeps an in-memory event copy when Firestore is unavailable.
+    // An in-memory event copy is already stored in localEvents.
+    // If Firestore persistence fails (e.g. daily quota reached or temporary disruption),
+    // log the warning and do not crash the student's learning session.
   }
 }
 
@@ -307,10 +306,11 @@ async function readProgressEvents(userId: string): Promise<{
       };
     });
     return { events, persistence: { mode: 'firestore', durable: true } };
-  } catch {
-    if (!env.firebase.allowLocalFallback || env.isProductionLike) {
-      throw new Error('Firestore progress read is unavailable');
-    }
+  } catch (error) {
+    logger.warn('Firestore progress read is unavailable, falling back to local/empty progress', {
+      userId,
+      error: error instanceof Error ? error.message : String(error),
+    });
     return {
       events: eventsForUser(userId),
       persistence: { mode: 'local_memory', durable: false },

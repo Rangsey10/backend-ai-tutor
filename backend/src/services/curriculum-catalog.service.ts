@@ -87,6 +87,101 @@ export const FALLBACK_STEM_CATALOG: CurriculumTopicCard[] = [
     is_available: true,
     starter_problem: '\\int_0^2 (3x^2 + 2x) \\, dx',
   },
+  {
+    lesson_id: 'math.g12.complex_numbers',
+    curriculum_version_id: 'g12-stem-v1',
+    grade_level_id: 'grade-12',
+    grade: 12,
+    subject_id: 'math',
+    subject_name: 'Mathematics',
+    topic_id: 'topic-grade-12-mathematics-complex-numbers',
+    topic_name: 'Complex Numbers',
+    title: 'ចំនួនកុំផ្លិច',
+    english_title: 'Complex Numbers',
+    description: 'Master complex numbers: algebraic, trigonometric, and Euler exponential forms, modulus, argument, and De Moivre formula.',
+    khmer_description: 'សិក្សាចំនួនកុំផ្លិចក្នុងទម្រង់ពីជគណិត ទម្រង់ត្រីកោណមាត្រ និងទម្រង់និទស្សន្ត ម៉ូឌុល និងអាគុយម៉ង់ រូបមន្តដឺម័រ។',
+    difficulty: 'intermediate',
+    tags: ['Complex Numbers', 'De Moivre', 'Modulus', 'Argument', 'Trigonometric Form'],
+    problem_count: 4,
+    is_available: true,
+    starter_problem: 'z = 1 + i\\sqrt{3}, \\quad \\text{find } |z|, \\arg(z), \\text{ and } z^6',
+  },
+  {
+    lesson_id: 'math.g12.differential_equations',
+    curriculum_version_id: 'g12-stem-v1',
+    grade_level_id: 'grade-12',
+    grade: 12,
+    subject_id: 'math',
+    subject_name: 'Mathematics',
+    topic_id: 'topic-grade-12-mathematics-differential-equations',
+    topic_name: 'Differential Equations',
+    title: 'សមីការឌីផេរ៉ង់ស្យែល',
+    english_title: 'Differential Equations',
+    description: 'Solve first-order separable and linear differential equations, and second-order linear homogeneous equations with constant coefficients.',
+    khmer_description: 'ដោះស្រាយសមីការឌីផេរ៉ង់ស្យែលលីនេអ៊ែរលំដាប់ទី១ និងលំដាប់ទី២មេគុណថេរ ព្រមទាំងរកចម្លើយទូទៅ និងចម្លើយពិសេស។',
+    difficulty: 'advanced',
+    tags: ['Differential Equations', 'Characteristic Equation', 'First Order', 'Second Order'],
+    problem_count: 4,
+    is_available: true,
+    starter_problem: 'y^{\\prime\\prime} - 5y^\\prime + 6y = 0, \\quad y(0) = 1, \\, y^\\prime(0) = 0',
+  },
+  {
+    lesson_id: 'math.g12.function_analysis',
+    curriculum_version_id: 'g12-stem-v1',
+    grade_level_id: 'grade-12',
+    grade: 12,
+    subject_id: 'math',
+    subject_name: 'Mathematics',
+    topic_id: 'topic-grade-12-mathematics-function-analysis-and-curve-sketching',
+    topic_name: 'Function Analysis and Curve Sketching',
+    title: 'ការសិក្សាអនុគមន៍ និងសង់ក្រាប',
+    english_title: 'Function Analysis and Curve Sketching',
+    description: 'Perform complete function analysis: domain, derivatives, critical points, variation table, asymptotes, inflection points, and curve sketching.',
+    khmer_description: 'សិក្សាអថេរភាព និងសង់ក្រាបនៃអនុគមន៍ រកដែនកំណត់ ដេរីវេ តារាងអថេរភាព ចំណុចរបត់ និងអាស៊ីមតូត។',
+    difficulty: 'advanced',
+    tags: ['Function Analysis', 'Variation Table', 'Asymptotes', 'Inflection Points', 'Curve Sketching'],
+    problem_count: 4,
+    is_available: true,
+    starter_problem: 'f(x) = \\frac{2x - 1}{x + 1}, \\quad \\text{study the variations and sketch } (C)',
+  },
+  {
+    lesson_id: 'math.g12.probability',
+    curriculum_version_id: 'g12-stem-v1',
+    grade_level_id: 'grade-12',
+    grade: 12,
+    subject_id: 'math',
+    subject_name: 'Mathematics',
+    topic_id: 'topic-grade-12-mathematics-probability-and-combinatorics',
+    topic_name: 'Probability and Combinatorics',
+    title: 'ប្រូបាប៊ីលីតេ និងបន្សំ',
+    english_title: 'Probability and Combinatorics',
+    description: 'Calculate permutations, combinations, conditional probability, independent events, and binomial random variables.',
+    khmer_description: 'គណនាចម្លាស់ អារ៉ង់ស្យម៉ង់ បន្សំ ប្រូបាបមានលក្ខខណ្ឌ ព្រឹត្តិការណ៍មិនទាក់ទងគ្នា និងអថេរចៃដន្យទ្វេធា។',
+    difficulty: 'intermediate',
+    tags: ['Probability', 'Combinatorics', 'Combinations', 'Conditional Probability', 'Binomial'],
+    problem_count: 4,
+    is_available: true,
+    starter_problem: 'A \\text{ box has } 5 \\text{ red and } 3 \\text{ blue balls. Draw } 2 \\text{ at random. Find } P(\\text{both red}).',
+  },
+  {
+    lesson_id: 'math.g12.vectors_conics',
+    curriculum_version_id: 'g12-stem-v1',
+    grade_level_id: 'grade-12',
+    grade: 12,
+    subject_id: 'math',
+    subject_name: 'Mathematics',
+    topic_id: 'topic-grade-12-mathematics-vectors-in-3d-space-and-conic-sections',
+    topic_name: 'Vectors in 3D Space and Conic Sections',
+    title: 'វ៉ិចទ័រក្នុងលំហ និងកោនិក',
+    english_title: 'Vectors in 3D Space and Conic Sections',
+    description: 'Analyze 3D vectors, dot and cross products, planes, spheres, and conic sections: parabola, ellipse, and hyperbola.',
+    khmer_description: 'សិក្សាផលគុណស្កាលែ និងផលគុណវ៉ិចទ័រក្នុងលំហ សមីការប្លង់ សមីការស្វ៊ែរ ព្រមទាំងកោនិក (ប៉ារ៉ាបូល អេលីប និងអ៊ីពែបូល)។',
+    difficulty: 'advanced',
+    tags: ['3D Vectors', 'Planes', 'Conic Sections', 'Parabola', 'Ellipse', 'Hyperbola'],
+    problem_count: 4,
+    is_available: true,
+    starter_problem: '\\text{Find the plane through } A(1, 2, -1) \\text{ with normal vector } \\vec{n} = (2, -1, 3)',
+  },
 
   // Physics
   {
@@ -325,15 +420,40 @@ export const FALLBACK_STEM_CATALOG: CurriculumTopicCard[] = [
   },
 ];
 
+function normalizeCatalogSubjectId(rawSubjectId: string, rawSubjectName = ''): string {
+  const combined = `${rawSubjectId} ${rawSubjectName}`.toLowerCase();
+  if (combined.includes('chem')) return 'chemistry';
+  if (combined.includes('phys')) return 'physics';
+  if (combined.includes('math')) return 'math';
+  return rawSubjectId.trim().toLowerCase();
+}
+
+let cachedDbTopics: CurriculumTopicCard[] | null = null;
+let cachedDbTopicsExpiry = 0;
+const CATALOG_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+
+export function clearCurriculumCatalogCache(): void {
+  cachedDbTopics = null;
+  cachedDbTopicsExpiry = 0;
+}
+
 export async function getCurriculumCatalog(
   query: ListCurriculumCatalogQuery = {}
 ): Promise<{ topics: CurriculumTopicCard[]; total: number }> {
+  const now = Date.now();
+  if (process.env.NODE_ENV !== 'test' && cachedDbTopics && now < cachedDbTopicsExpiry) {
+    const filtered = filterTopics(cachedDbTopics, query);
+    return { topics: filtered, total: filtered.length };
+  }
+
   try {
     const db = getFirestore();
     const versionsSnap = await db.collection('curriculum_versions').where('status', '==', 'published').get();
 
     if (!versionsSnap.empty) {
       const dbTopics: CurriculumTopicCard[] = [];
+      const seenTopicKeys = new Set<string>();
+
       for (const verDoc of versionsSnap.docs) {
         const ver = verDoc.data();
         const verId = String(ver.curriculum_version_id || verDoc.id);
@@ -348,47 +468,111 @@ export async function getCurriculumCatalog(
 
         const gradeNum = gradeDoc.exists ? Number(gradeDoc.data()?.grade_number || 12) : 12;
         const subjName = subjDoc.exists ? String(subjDoc.data()?.subject_name || subjectId) : subjectId;
+        const canonicalSubject = normalizeCatalogSubjectId(subjectId, subjName);
 
+        const docsByTopic = new Map<string, Array<Record<string, unknown>>>();
         for (const cDoc of contentsSnap.docs) {
-          const content = cDoc.data();
+          const content = { ...cDoc.data(), content_id: cDoc.data().content_id || cDoc.id } as Record<string, unknown>;
           const topicId = String(content.topic_id || cDoc.id);
-          const topicName = String(content.title || content.topic_name || 'Curriculum Topic');
-          const tags: string[] = Array.isArray(content.tags)
-            ? content.tags.map(String)
-            : [topicName, subjName];
+          if (!docsByTopic.has(topicId)) docsByTopic.set(topicId, []);
+          docsByTopic.get(topicId)!.push(content);
+        }
+
+        for (const [topicId, topicContents] of docsByTopic.entries()) {
+          if (seenTopicKeys.has(`${gradeLevelId}:${canonicalSubject}:${topicId}`)) continue;
+          seenTopicKeys.add(`${gradeLevelId}:${canonicalSubject}:${topicId}`);
+
+          let topicData: Record<string, unknown> | undefined;
+          try {
+            const topicSnap = await db.collection('topics').doc(topicId).get();
+            if (topicSnap.exists) topicData = topicSnap.data() as Record<string, unknown>;
+          } catch {
+            // Ignore if topics collection is not mocked in unit tests
+          }
+
+          const primaryContent =
+            topicContents.find((c) => c.is_lesson_entry === true) ||
+            topicContents.find((c) => c.kind === 'concept') ||
+            topicContents[0];
+
+          const topicName = String(
+            topicData?.topic_name || primaryContent.topic_name || primaryContent.title || 'Curriculum Topic'
+          );
+          const khmerTitle = String(
+            topicData?.khmer_name || primaryContent.title_km || primaryContent.topic_khmer || topicName
+          );
+          const description = String(
+            topicData?.description || primaryContent.summary || primaryContent.description || primaryContent.body || ''
+          );
+          const khmerDescription = String(
+            topicData?.khmer_description || primaryContent.khmer_description || khmerTitle || description
+          );
+          const rawDiff = String(
+            topicData?.difficulty_level || primaryContent.difficulty || primaryContent.difficulty_level || 'intermediate'
+          ).toLowerCase();
+          const difficulty: 'beginner' | 'intermediate' | 'advanced' =
+            rawDiff === 'advanced' ? 'advanced' : rawDiff === 'beginner' || rawDiff === 'easy' || rawDiff === 'basic' ? 'beginner' : 'intermediate';
+
+          const tagSet = new Set<string>();
+          for (const c of topicContents) {
+            if (Array.isArray(c.tags)) {
+              for (const t of c.tags) {
+                if (typeof t === 'string' && t.trim()) tagSet.add(t.trim());
+              }
+            }
+          }
+          const tags = tagSet.size > 0 ? Array.from(tagSet).slice(0, 8) : [topicName, subjName];
+
+          const exampleAndExerciseDocs = topicContents.filter((c) => c.kind === 'example' || c.kind === 'exercise').length;
+          const problemCount =
+            exampleAndExerciseDocs > 0
+              ? exampleAndExerciseDocs
+              : Number(primaryContent.problem_count || (Array.isArray(primaryContent.exercises) ? primaryContent.exercises.length : 4));
+
+          const firstFormulaDoc = topicContents.find((c) => c.kind === 'formula' && typeof c.expression === 'string' && String(c.expression).trim());
+          const starterProblem = String(
+            topicData?.starter_problem ||
+            primaryContent.starter_problem ||
+            (firstFormulaDoc ? firstFormulaDoc.expression : '') ||
+            (Array.isArray(primaryContent.formulas) ? primaryContent.formulas[0] : '') ||
+            ''
+          );
 
           dbTopics.push({
-            lesson_id: String(content.content_id || cDoc.id),
+            lesson_id: String(primaryContent.chunk_id || primaryContent.content_id || topicId),
             curriculum_version_id: verId,
             grade_level_id: gradeLevelId,
             grade: gradeNum,
-            subject_id: subjectId,
+            subject_id: canonicalSubject,
             subject_name: subjName,
             topic_id: topicId,
             topic_name: topicName,
-            title: String(content.title_km || content.title || topicName),
+            title: khmerTitle,
             english_title: topicName,
-            description: String(content.description || content.body || ''),
-            khmer_description: String(content.khmer_description || content.description || ''),
-            difficulty: (['beginner', 'intermediate', 'advanced'].includes(content.difficulty) ? content.difficulty : 'intermediate') as any,
+            description,
+            khmer_description: khmerDescription,
+            difficulty,
             tags,
-            problem_count: Number(content.problem_count || (Array.isArray(content.exercises) ? content.exercises.length : 4)),
-            is_available: content.is_available !== false,
-            starter_problem: String(content.starter_problem || (Array.isArray(content.formulas) ? content.formulas[0] : '') || ''),
+            problem_count: problemCount,
+            is_available: primaryContent.is_available !== false,
+            starter_problem: starterProblem,
           });
         }
       }
 
       if (dbTopics.length > 0) {
+        cachedDbTopics = dbTopics;
+        cachedDbTopicsExpiry = now + CATALOG_CACHE_TTL_MS;
         const filtered = filterTopics(dbTopics, query);
         return { topics: filtered, total: filtered.length };
       }
     }
   } catch (_err) {
-    // Firestore unavailable or unseeded; fall back seamlessly
+    console.warn('[getCurriculumCatalog] Firestore query failed; using cached or fallback catalog:', (_err as Error)?.message || _err);
   }
 
-  const filtered = filterTopics(FALLBACK_STEM_CATALOG, query);
+  const base = cachedDbTopics && cachedDbTopics.length > 0 ? cachedDbTopics : FALLBACK_STEM_CATALOG;
+  const filtered = filterTopics(base, query);
   return { topics: filtered, total: filtered.length };
 }
 
@@ -396,15 +580,20 @@ function filterTopics(topics: CurriculumTopicCard[], query: ListCurriculumCatalo
   let result = [...topics];
 
   if (query.grade !== undefined && query.grade !== null && String(query.grade).trim() !== '') {
-    const targetGrade = Number(query.grade);
-    if (!Number.isNaN(targetGrade)) {
+    const targetGrade = Number(String(query.grade).replace(/[^0-9]/g, ''));
+    if (!Number.isNaN(targetGrade) && targetGrade > 0) {
       result = result.filter((t) => t.grade === targetGrade);
     }
   }
 
   if (query.subject_id && query.subject_id.trim() !== '') {
-    const targetSubj = query.subject_id.trim().toLowerCase();
-    result = result.filter((t) => t.subject_id.toLowerCase() === targetSubj);
+    const rawTarget = query.subject_id.trim().toLowerCase();
+    const canonicalTarget = normalizeCatalogSubjectId(rawTarget);
+    result = result.filter(
+      (t) =>
+        t.subject_id.toLowerCase() === rawTarget ||
+        normalizeCatalogSubjectId(t.subject_id, t.subject_name) === canonicalTarget
+    );
   }
 
   if (query.topic_id && query.topic_id.trim() !== '') {
@@ -427,3 +616,4 @@ function filterTopics(topics: CurriculumTopicCard[], query: ListCurriculumCatalo
 
   return result;
 }
+
