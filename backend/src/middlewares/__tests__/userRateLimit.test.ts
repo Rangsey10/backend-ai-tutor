@@ -2,6 +2,7 @@ import type { Request, Response } from 'express';
 import { userRateLimit, clearUserRateLimits } from '../userRateLimit';
 import { authRateLimit, clearAuthRateLimits } from '../auth-rate-limit';
 import { logger } from '../../utils/logger';
+import type { RateLimitStore } from '../../utils/rate-limiter';
 
 function createMockReq(uid?: string, ip = '127.0.0.1'): Request {
   return {
@@ -24,12 +25,11 @@ function createMockRes(): { res: Response; headers: Record<string, string> } {
 
 describe('Rate Limiter with Redis Shared Store', () => {
   let mockRedisData: Map<string, { value: number; expireAt: number }>;
-  let mockRedisClient: any;
+  let mockRedisClient: RateLimitStore;
 
   beforeEach(() => {
     mockRedisData = new Map();
     mockRedisClient = {
-      status: 'ready',
       async eval(_script: string, _numKeys: number, key: string, _maxRequests: string, windowMsStr: string) {
         const windowMs = parseInt(windowMsStr, 10);
         const now = Date.now();
@@ -50,10 +50,9 @@ describe('Rate Limiter with Redis Shared Store', () => {
         }
         return count;
       },
-      async keys(_pattern: string) {
+      async keys() {
         return Array.from(mockRedisData.keys());
       },
-      on: jest.fn(),
     };
   });
 
@@ -106,11 +105,9 @@ describe('Rate Limiter with Redis Shared Store', () => {
 
   it('fails OPEN when Redis is unavailable, logs a warning, and preserves headers', async () => {
     const failingRedisClient = {
-      status: 'ready',
       async eval() {
         throw new Error('ECONNREFUSED: Connection to Redis failed');
       },
-      on: jest.fn(),
     };
 
     const warnSpy = jest.spyOn(logger, 'warn').mockImplementation(() => logger);

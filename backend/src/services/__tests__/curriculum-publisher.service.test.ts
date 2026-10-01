@@ -132,6 +132,7 @@ describe('Curriculum Publisher Service', () => {
       'Compute standard emf',
     ]);
     expect(chunk.khmer_terms['electromotive force']).toBe('កម្លាំងអេឡិចត្រូចលករ');
+    expect(chunk.source.metadata.review_status).toBe('published');
   });
 
   it('compiles curriculum version with structured steps and misconceptions into canonical chunks', async () => {

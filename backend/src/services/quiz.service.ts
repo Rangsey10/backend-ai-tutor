@@ -1350,9 +1350,12 @@ function allowSeededQuizData(): boolean {
 function publicQuiz(quiz: InternalQuiz): QuizResponse {
   return {
     ...quiz,
-    questions: quiz.questions.map(
-      ({ correct_option_id, correct_answer, explanation, ...question }) => question
-    ),
+    questions: quiz.questions.map(({ correct_option_id, correct_answer, explanation, ...question }) => {
+      void correct_option_id;
+      void correct_answer;
+      void explanation;
+      return question;
+    }),
   };
 }
 

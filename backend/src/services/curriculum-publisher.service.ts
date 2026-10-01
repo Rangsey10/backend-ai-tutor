@@ -154,11 +154,17 @@ export async function compileCurriculumVersion(versionOrId: string | Version): P
     version = versionOrId;
   }
 
-  const [grade, subject, contents] = await Promise.all([
+  const [grade, subject, initialContents] = await Promise.all([
     db.collection('grade_levels').doc(version.grade_level_id).get(),
     db.collection('subjects').doc(version.subject_id).get(),
     db.collection('admin_curriculum_content').where('curriculum_version_id', '==', version.curriculum_version_id).get(),
   ]);
+  let contents = initialContents;
+
+  if (contents.empty && version.curriculum_version_id.endsWith('-draft')) {
+    const baseId = version.curriculum_version_id.replace(/-draft$/, '');
+    contents = await db.collection('admin_curriculum_content').where('curriculum_version_id', '==', baseId).get();
+  }
 
   if (!grade.exists || !subject.exists || subject.data()?.status !== 'active' || grade.data()?.status !== 'active') {
     throw new AppError('Only active grade and subject records can be published', 400);
@@ -173,7 +179,10 @@ export async function compileCurriculumVersion(versionOrId: string | Version): P
     throw new AppError('A curriculum version must contain at least one lesson before publishing', 400);
   }
 
-  const chunks = await Promise.all(contents.docs.map(async (doc) => {
+  const primaryDocs = contents.docs.filter((d) => d.data()?.is_lesson_entry === true);
+  const docsToCompile = primaryDocs.length > 0 ? primaryDocs : contents.docs;
+
+  const chunks = await Promise.all(docsToCompile.map(async (doc) => {
     const content = doc.data() as Record<string, unknown>;
     const topicId = String(content.topic_id ?? '');
     const topic = await db.collection('topics').doc(topicId).get();
@@ -216,6 +225,7 @@ export async function compileCurriculumVersion(versionOrId: string | Version): P
           grade_level_id: version.grade_level_id,
           subject_id: version.subject_id,
           topic_id: topicId,
+          review_status: version.status,
           published_at: version.published_at && typeof version.published_at.toDate === 'function'
             ? version.published_at.toDate().toISOString()
             : new Date().toISOString(),

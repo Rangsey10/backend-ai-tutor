@@ -1,5 +1,6 @@
 import request from 'supertest';
 import { createApp } from '../../app';
+import type { CurriculumTopicCard } from '../../services/curriculum-catalog.service';
 
 jest.mock('../../config/firebase', () => ({
   getAuth: jest.fn(),
@@ -30,13 +31,13 @@ describe('GET /api/v1/curriculum/catalog', () => {
     expect(Array.isArray(res.body.data.topics)).toBe(true);
     expect(res.body.data.topics.length).toBeGreaterThanOrEqual(10);
 
-    const topics = res.body.data.topics;
-    const grades = new Set(topics.map((t: any) => t.grade));
+    const topics = res.body.data.topics as CurriculumTopicCard[];
+    const grades = new Set(topics.map((topic) => topic.grade));
     expect(grades).toContain(10);
     expect(grades).toContain(11);
     expect(grades).toContain(12);
 
-    const subjects = new Set(topics.map((t: any) => t.subject_id));
+    const subjects = new Set(topics.map((topic) => topic.subject_id));
     expect(subjects).toContain('math');
     expect(subjects).toContain('physics');
     expect(subjects).toContain('chemistry');
@@ -57,7 +58,7 @@ describe('GET /api/v1/curriculum/catalog', () => {
     const res = await request(app).get('/api/v1/curriculum/catalog?grade=12').expect(200);
 
     expect(res.body.success).toBe(true);
-    const topics = res.body.data.topics;
+    const topics = res.body.data.topics as CurriculumTopicCard[];
     expect(topics.length).toBeGreaterThan(0);
     for (const t of topics) {
       expect(t.grade).toBe(12);
@@ -68,7 +69,7 @@ describe('GET /api/v1/curriculum/catalog', () => {
     const res = await request(app).get('/api/v1/curriculum/catalog?subject_id=physics').expect(200);
 
     expect(res.body.success).toBe(true);
-    const topics = res.body.data.topics;
+    const topics = res.body.data.topics as CurriculumTopicCard[];
     expect(topics.length).toBeGreaterThan(0);
     for (const t of topics) {
       expect(t.subject_id).toBe('physics');
@@ -79,8 +80,8 @@ describe('GET /api/v1/curriculum/catalog', () => {
     const res = await request(app).get('/api/v1/curriculum/catalog?search=optics').expect(200);
 
     expect(res.body.success).toBe(true);
-    const topics = res.body.data.topics;
+    const topics = res.body.data.topics as CurriculumTopicCard[];
     expect(topics.length).toBeGreaterThanOrEqual(1);
-    expect(topics.some((t: any) => t.topic_name.toLowerCase().includes('optics'))).toBe(true);
+    expect(topics.some((topic) => topic.topic_name.toLowerCase().includes('optics'))).toBe(true);
   });
 });

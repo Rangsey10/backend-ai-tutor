@@ -1,6 +1,15 @@
 import { logger } from './logger';
 import { getRedisClient } from '../config/redis';
 
+export interface RateLimitEvaluator {
+  eval(script: string, numberOfKeys: number, ...args: string[]): Promise<unknown>;
+}
+
+export interface RateLimitStore extends RateLimitEvaluator {
+  keys(pattern: string): Promise<string[]>;
+  del(...keys: string[]): Promise<number>;
+}
+
 export interface RateLimitResult {
   allowed: boolean;
   count: number;
@@ -32,7 +41,7 @@ export async function evaluateRateLimit(
   maxRequests: number,
   windowMs: number,
   operation: string,
-  customClient?: any
+  customClient?: RateLimitEvaluator
 ): Promise<RateLimitResult> {
   const client = customClient !== undefined ? customClient : getRedisClient();
 

@@ -8,3 +8,10 @@ export const listPublishedLessonsQuerySchema = z.object({
 }).strict();
 
 export type ListPublishedLessonsQuery = z.infer<typeof listPublishedLessonsQuerySchema>;
+
+export const lessonContentParamsSchema = z.object({
+  lessonId: z.string().trim().min(1).max(180),
+});
+
+export type LessonContentParams = z.infer<typeof lessonContentParamsSchema>;
+

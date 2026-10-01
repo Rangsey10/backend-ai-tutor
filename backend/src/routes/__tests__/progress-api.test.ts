@@ -224,6 +224,26 @@ describe('student progress API', () => {
     });
   });
 
+  it('returns structured validation details for an invalid lesson completion', async () => {
+    const response = await request(app)
+      .post('/api/v1/progress/lessons/complete')
+      .set(authHeader())
+      .send({ tutor_session_id: 'session-1' })
+      .expect(400);
+
+    expect(response.body).toMatchObject({
+      success: false,
+      message: 'Request validation failed',
+      error: {
+        code: 'VALIDATION_ERROR',
+        details: expect.arrayContaining([
+          expect.objectContaining({ path: 'topic_id' }),
+        ]),
+      },
+    });
+    expect(mockedStoreLessonCompletion).not.toHaveBeenCalled();
+  });
+
   it('stores student answer and quiz attempt summaries', async () => {
     await request(app)
       .post('/api/v1/progress/answers')
@@ -326,7 +346,14 @@ describe('student progress API', () => {
     expect(dashboardResponse.body.data.empty_state).toBe(false);
     expect(mockedGetDashboardSummary).toHaveBeenCalledWith('firebase-uid');
 
-    await request(app).get('/api/v1/progress/recent-activity').set(authHeader()).expect(200);
+    const recentActivityResponse = await request(app)
+      .get('/api/v1/progress/recent-activity')
+      .set(authHeader())
+      .expect(200);
+    expect(recentActivityResponse.body).toMatchObject({
+      success: true,
+      data: expect.any(Array),
+    });
     expect(mockedGetRecentActivity).toHaveBeenCalledWith('firebase-uid');
 
     await request(app).get('/api/v1/progress/weak-topic').set(authHeader()).expect(200);

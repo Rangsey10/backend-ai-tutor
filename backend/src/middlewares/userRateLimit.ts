@@ -1,10 +1,14 @@
 import type { NextFunction, Request, Response } from 'express';
 import { AppError } from '../utils/AppError';
-import { evaluateRateLimit } from '../utils/rate-limiter';
+import {
+  evaluateRateLimit,
+  type RateLimitEvaluator,
+  type RateLimitStore,
+} from '../utils/rate-limiter';
 import { getRedisClient } from '../config/redis';
 
 export interface RateLimitOptions {
-  redisClient?: any;
+  redisClient?: RateLimitEvaluator;
 }
 
 /**
@@ -47,7 +51,7 @@ export function userRateLimit(
   };
 }
 
-export async function clearUserRateLimits(customClient?: any): Promise<void> {
+export async function clearUserRateLimits(customClient?: RateLimitStore): Promise<void> {
   const client = customClient !== undefined ? customClient : getRedisClient();
   if (!client) return;
   try {

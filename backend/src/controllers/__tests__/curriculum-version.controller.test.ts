@@ -6,7 +6,10 @@ import {
 } from '../curriculum-version.controller';
 import { updateAdminContent } from '../admin-curriculum.controller';
 import { getFirestore } from '../../config/firebase';
-import { publishCurriculumVersionToAi } from '../../services/curriculum-publisher.service';
+import {
+  publishCurriculumVersionToAi,
+  unpublishCurriculumVersionFromAi,
+} from '../../services/curriculum-publisher.service';
 
 jest.mock('../../config/firebase', () => ({
   getFirestore: jest.fn(),
@@ -27,6 +30,7 @@ jest.mock('../../services/curriculum-publisher.service', () => ({
 }));
 
 const mockedPublishToAi = publishCurriculumVersionToAi as jest.MockedFunction<typeof publishCurriculumVersionToAi>;
+const mockedUnpublishFromAi = unpublishCurriculumVersionFromAi as jest.MockedFunction<typeof unpublishCurriculumVersionFromAi>;
 
 type StoredDocument = Record<string, unknown>;
 type FirestoreFixture = {
@@ -77,9 +81,9 @@ function createFirestoreFixture(seed: Record<string, Record<string, StoredDocume
           };
         },
         set: async (data: StoredDocument, options?: { merge?: boolean }) => {
+          await set(collectionName, id, data, options);
           const current = documents.get(id);
           documents.set(id, options?.merge && current ? { ...current, ...data } : data);
-          set(collectionName, id, data, options);
         },
       }),
     };
@@ -185,6 +189,28 @@ describe('Curriculum version lifecycle controller', () => {
     expect([...firestore.collections.admin_audit_logs.values()][0]).toMatchObject({
       action: 'curriculum_version.published', actor_id: 'admin-1', resource_id: 'math-10-v1',
     });
+  });
+
+  it('compensates the AI publication when Firestore cannot persist published state', async () => {
+    const firestore = createFirestoreFixture({
+      curriculum_versions: { 'math-10-v1': version },
+      admin_curriculum_content: { 'content-1': publishableContent },
+      grade_levels: { 'grade-10': { grade_level_id: 'grade-10', grade_number: 10, status: 'active' } },
+      subjects: { 'math-10': { subject_id: 'math-10', subject_name: 'Mathematics', status: 'active' } },
+      topics: { 'linear-equations': { topic_id: 'linear-equations', topic_name: 'Linear equations', grade_level_id: 'grade-10', subject_id: 'math-10', status: 'active' } },
+    });
+    firestore.set.mockImplementationOnce((collectionName: string) => {
+      if (collectionName === 'curriculum_versions') throw new Error('firestore unavailable');
+    });
+
+    const response = await invoke(publishCurriculumVersion, {
+      params: { curriculumVersionId: 'math-10-v1' },
+      body: { idempotency_key: 'publish-firestore-failure' },
+    });
+
+    expect((response.error as Error).message).toBe('firestore unavailable');
+    expect(mockedUnpublishFromAi).toHaveBeenCalledWith('math-10-v1');
+    expect(firestore.collections.curriculum_versions.get('math-10-v1')?.status).toBe('in_review');
   });
 
   it('keeps a published version immutable to draft-review transitions', async () => {

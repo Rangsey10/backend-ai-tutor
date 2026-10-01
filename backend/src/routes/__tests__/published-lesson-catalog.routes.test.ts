@@ -1,7 +1,10 @@
 import request from 'supertest';
 import { createApp } from '../../app';
 import { getAuth, getFirestore } from '../../config/firebase';
-import { listStudentPublishedLessons } from '../../services/published-lesson-catalog.service';
+import {
+  listStudentPublishedLessons,
+  getLessonDetailedContent,
+} from '../../services/published-lesson-catalog.service';
 
 jest.mock('../../config/firebase', () => ({
   getAuth: jest.fn(),
@@ -10,11 +13,15 @@ jest.mock('../../config/firebase', () => ({
 
 jest.mock('../../services/published-lesson-catalog.service', () => ({
   listStudentPublishedLessons: jest.fn(),
+  getLessonDetailedContent: jest.fn(),
 }));
 
 const mockedGetAuth = getAuth as jest.MockedFunction<typeof getAuth>;
 const mockedListLessons = listStudentPublishedLessons as jest.MockedFunction<
   typeof listStudentPublishedLessons
+>;
+const mockedGetLessonContent = getLessonDetailedContent as jest.MockedFunction<
+  typeof getLessonDetailedContent
 >;
 let app: ReturnType<typeof createApp>;
 
@@ -135,5 +142,63 @@ describe('published student lesson catalog route', () => {
       .expect(400);
 
     expect(mockedListLessons).not.toHaveBeenCalled();
+  });
+
+  it('returns rich pedagogical content for a lesson (concepts, formulas, examples)', async () => {
+    mockedGetLessonContent.mockResolvedValue({
+      lesson_id: 'lesson-1',
+      title: 'Limits of Functions',
+      topic_id: 'limits-of-functions',
+      topic_name: 'Limits of Functions',
+      topic_khmer_name: 'លីមីតនៃអនុគមន៍',
+      subject_id: 'math',
+      subject_name: 'Mathematics',
+      grade_number: 12,
+      grade_name: 'Grade 12',
+      learning_objectives: ['Understand limits'],
+      concepts: [
+        {
+          title: 'Direct Substitution',
+          summary: 'Evaluating f(a) directly',
+          body: 'If f is continuous...',
+        },
+      ],
+      formulas: [
+        {
+          name: 'Indeterminate Form 0/0',
+          expression: '\\lim_{x \\to a} \\frac{P(x)}{Q(x)}',
+          explanation: 'Factor and cancel common factors',
+        },
+      ],
+      examples: [
+        {
+          problem: 'Find \\lim_{x \\to 2} (x^2 - 4)/(x - 2)',
+          solution: '4',
+          steps: ['Factor numerator', 'Cancel x - 2', 'Substitute x = 2'],
+        },
+      ],
+      common_misconceptions: ['0/0 is not 1 or 0'],
+      khmer_terms: { limit: 'លីមីត' },
+      prerequisites: ['Polynomial factoring'],
+      starter_problem: '\\lim_{x \\to 2} \\frac{x^2 - 4}{x - 2}',
+    });
+
+    const response = await request(app)
+      .get('/api/v1/catalog/lessons/lesson-1/content')
+      .set('Authorization', 'Bearer valid-token')
+      .expect(200);
+
+    expect(mockedGetLessonContent).toHaveBeenCalledWith('lesson-1');
+    expect(response.body.data).toEqual(
+      expect.objectContaining({
+        lesson_id: 'lesson-1',
+        title: 'Limits of Functions',
+        concepts: expect.any(Array),
+        formulas: expect.any(Array),
+        examples: expect.any(Array),
+        common_misconceptions: expect.any(Array),
+        khmer_terms: expect.any(Object),
+      })
+    );
   });
 });

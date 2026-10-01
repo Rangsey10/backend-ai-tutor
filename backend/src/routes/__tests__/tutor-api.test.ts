@@ -517,6 +517,25 @@ describe('Visual Tutor AI-service proxy routes', () => {
     });
   });
 
+  it('returns a structured validation error for a blank session id', async () => {
+    const response = await request(app)
+      .get('/api/v1/tutor/sessions/%20')
+      .set(authHeader())
+      .expect(400);
+
+    expect(response.body).toMatchObject({
+      success: false,
+      message: 'Request validation failed',
+      error: {
+        code: 'VALIDATION_ERROR',
+        details: expect.arrayContaining([
+          expect.objectContaining({ path: 'sessionId' }),
+        ]),
+      },
+    });
+    expect(mockedGetTutorSession).not.toHaveBeenCalled();
+  });
+
   it('returns current user sessions', async () => {
     mockedGetTutorSessionsForUser.mockResolvedValue([
       { session_id: 'session-1', user_id: 'firebase-uid' },

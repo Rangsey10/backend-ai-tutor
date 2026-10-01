@@ -11,7 +11,8 @@ jest.mock('../../config/firebase', () => ({
 const mockedGetFirestore = getFirestore as jest.MockedFunction<typeof getFirestore>;
 
 describe('import-curriculum-json ETL script', () => {
-  let mockBatch: { set: jest.Mock; commit: jest.Mock };
+  let mockBatch: { set: jest.Mock; delete: jest.Mock; commit: jest.Mock };
+  let storedDocuments: Map<string, Map<string, Record<string, unknown>>>;
   let mockDb: {
     collection: jest.Mock;
     batch: jest.Mock;
@@ -45,17 +46,93 @@ describe('import-curriculum-json ETL script', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    mockBatch = {
-      set: jest.fn().mockReturnThis(),
-      commit: jest.fn().mockResolvedValue([]),
+    jest.spyOn(global, 'fetch').mockResolvedValue({ ok: true } as Response);
+    storedDocuments = new Map();
+
+    const collectionDocuments = (collectionName: string) => {
+      let documents = storedDocuments.get(collectionName);
+      if (!documents) {
+        documents = new Map();
+        storedDocuments.set(collectionName, documents);
+      }
+      return documents;
     };
-    mockDb = {
-      collection: jest.fn().mockReturnValue({
-        doc: jest.fn().mockReturnValue({
-          set: jest.fn().mockResolvedValue(undefined),
-        }),
+
+    const documentReference = (collectionName: string, documentId: string) => ({
+      id: documentId,
+      path: `${collectionName}/${documentId}`,
+      collectionName,
+      get: jest.fn(async () => {
+        const data = collectionDocuments(collectionName).get(documentId);
+        return {
+          exists: data !== undefined,
+          id: documentId,
+          data: () => data,
+        };
       }),
-      batch: jest.fn().mockReturnValue(mockBatch),
+      set: jest.fn(async (data: Record<string, unknown>, options?: { merge?: boolean }) => {
+        const documents = collectionDocuments(collectionName);
+        const existing = documents.get(documentId) ?? {};
+        documents.set(documentId, options?.merge ? { ...existing, ...data } : data);
+      }),
+    });
+
+    const querySnapshot = (collectionName: string, rows: Array<[string, Record<string, unknown>]>) => ({
+      empty: rows.length === 0,
+      docs: rows.map(([id, data]) => ({
+        id,
+        ref: documentReference(collectionName, id),
+        data: () => data,
+      })),
+    });
+
+    mockDb = {
+      collection: jest.fn((collectionName: string) => ({
+        doc: jest.fn((documentId: string) => documentReference(collectionName, documentId)),
+        get: jest.fn(async () =>
+          querySnapshot(collectionName, [...collectionDocuments(collectionName).entries()])
+        ),
+        where: jest.fn((field: string, operator: string, value: unknown) => {
+          expect(operator).toBe('==');
+          return {
+            get: jest.fn(async () =>
+              querySnapshot(
+                collectionName,
+                [...collectionDocuments(collectionName).entries()].filter(
+                  ([, data]) => data[field] === value
+                )
+              )
+            ),
+          };
+        }),
+      })),
+      batch: jest.fn(() => {
+        const writes: Array<{
+          ref: { collectionName: string; id: string };
+          data: Record<string, unknown>;
+        }> = [];
+        const deletes: Array<{ collectionName: string; id: string }> = [];
+        mockBatch = {
+          set: jest.fn((ref, data) => {
+            writes.push({ ref, data });
+            return mockBatch;
+          }),
+          delete: jest.fn((ref) => {
+            deletes.push(ref);
+            return mockBatch;
+          }),
+          commit: jest.fn(async () => {
+            for (const { ref, data } of writes) {
+              collectionDocuments(ref.collectionName).set(ref.id, data);
+            }
+            for (const ref of deletes) {
+              collectionDocuments(ref.collectionName).delete(ref.id);
+            }
+            return [];
+          }),
+        };
+        return mockBatch;
+      }),
     };
     mockedGetFirestore.mockReturnValue(mockDb as unknown as ReturnType<typeof getFirestore>);
   });
@@ -68,8 +145,14 @@ describe('import-curriculum-json ETL script', () => {
     expect(result.gradesUpserted).toBe(1);
     expect(result.subjectsUpserted).toBe(1);
     expect(result.topicsUpserted).toBe(1);
-    expect(result.contentUpserted).toBe(1);
+    expect(result.contentUpserted).toBe(2);
+    expect(result.versionsPublished).toBe(1);
     expect(mockDb.batch).toHaveBeenCalled();
     expect(mockBatch.commit).toHaveBeenCalled();
+    expect(mockDb.collection).toHaveBeenCalledWith('grade_levels');
+    expect(mockDb.collection).toHaveBeenCalledWith('subjects');
+    expect(mockDb.collection).toHaveBeenCalledWith('topics');
+    expect(mockDb.collection).toHaveBeenCalledWith('admin_curriculum_content');
+    expect(mockDb.collection).toHaveBeenCalledWith('curriculum_versions');
   });
 });
