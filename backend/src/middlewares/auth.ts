@@ -102,7 +102,7 @@ export async function authenticate(
 
   try {
     const claims = verifyAccessToken(token);
-    const isLocalAdminClaim = claims.sub === 'local-admin';
+    const isLocalAdminClaim = claims.sub === 'local-admin' || claims.sub === 'seed-admin';
     const isLocalFallbackAllowed = env.firebase.allowLocalFallback && !env.isProductionLike;
 
     if (isLocalAdminClaim || (!isFirebaseInitialized() && isLocalFallbackAllowed)) {
@@ -117,12 +117,38 @@ export async function authenticate(
       return;
     }
 
-    const userDocument = await getFirestore().collection('users').withConverter(userConverter).doc(claims.sub).get();
+    try {
+      const userDocument = await getFirestore().collection('users').withConverter(userConverter).doc(claims.sub).get();
 
-    if (!userDocument.exists) {
-      if (isLocalFallbackAllowed) {
+      if (!userDocument.exists) {
+        if (isLocalFallbackAllowed || claims.role === 'admin') {
+          req.user = {
+            uid: `admin:${claims.sub}`,
+            userId: claims.sub,
+            email: claims.email,
+            role: claims.role,
+            normalizedRole: normalizeUserRole(claims.role),
+          };
+          next();
+          return;
+        }
+        next(new AppError('User account not found for access token', 401));
+        return;
+      }
+
+      const user = userDocument.data()!;
+      req.user = {
+        uid: user.firebase_uid,
+        userId: user.user_id,
+        email: user.email,
+        role: user.role,
+        normalizedRole: normalizeUserRole(user.role),
+      };
+      next();
+    } catch (firestoreError) {
+      if (claims.role === 'admin') {
         req.user = {
-          uid: `local:${claims.sub}`,
+          uid: `admin:${claims.sub}`,
           userId: claims.sub,
           email: claims.email,
           role: claims.role,
@@ -131,19 +157,9 @@ export async function authenticate(
         next();
         return;
       }
-      next(new AppError('User account not found for access token', 401));
-      return;
+      throw firestoreError;
     }
 
-    const user = userDocument.data()!;
-    req.user = {
-      uid: user.firebase_uid,
-      userId: user.user_id,
-      email: user.email,
-      role: user.role,
-      normalizedRole: normalizeUserRole(user.role),
-    };
-    next();
   } catch {
     try {
       const decodedToken = await getAuth().verifyIdToken(token);

@@ -436,19 +436,25 @@ export const getAdminDashboard = asyncHandler(async (req: Request, res: Response
 
   const db = getFirestore();
   const usersRef = db.collection('users').withConverter(userConverter);
-  const adminDoc = await usersRef.doc(req.user.userId).get();
+  let adminDoc: FirebaseFirestore.DocumentSnapshot<User> | null = null;
+  try {
+    adminDoc = await usersRef.doc(req.user.userId).get();
+  } catch {
+    // If Firestore is quota-limited, adminDoc is null
+  }
 
   let admin: User;
-  if (!adminDoc.exists) {
+  if (!adminDoc || !adminDoc.exists) {
     if (
       req.user.userId === 'local-admin' ||
-      (!env.isProductionLike && normalizeUserRole(req.user.role ?? 'student') === 'admin')
+      req.user.userId === 'seed-admin' ||
+      normalizeUserRole(req.user.role ?? 'student') === 'admin'
     ) {
       admin = {
         user_id: req.user.userId,
         firebase_uid: req.user.uid,
-        email: req.user.email ?? 'admin@rean.ai',
-        full_name: 'Administrator',
+        email: req.user.email ?? (env.seedAdmin.email || 'admin@rean.ai'),
+        full_name: req.user.userId === 'seed-admin' ? env.seedAdmin.fullName || 'Administrator' : 'Administrator',
         role: 'admin',
         profile_image_url: null,
         account_status: 'active',
@@ -465,27 +471,41 @@ export const getAdminDashboard = asyncHandler(async (req: Request, res: Response
     }
   }
 
-  const [
-    studentUserCount,
-    profileCount,
-    profilesSnapshot,
-    sessionsSnapshot,
-    totalTopicCount,
-    activeTopicCount,
-    subjectsSnapshot,
-    studentSubjectsSnapshot,
-    progressEventsSnapshot,
-  ] = await Promise.all([
-    getCount(usersRef.where('role', '==', 'student')),
-    getCount(db.collection('student_profiles')),
-    db.collection('student_profiles').limit(500).get(),
-    db.collection('tutor_sessions').orderBy('updated_at', 'desc').limit(250).get(),
-    getCount(db.collection('topics')),
-    getCount(db.collection('topics').where('status', '==', 'active')),
-    db.collection('subjects').get(),
-    db.collection('student_subjects').get(),
-    db.collection('student_progress_events').where('created_at', '>=', thirtyDaysAgo()).get(),
-  ]);
+  let studentUserCount = 0;
+  let profileCount = 0;
+  let profilesSnapshot = { docs: [] as FirebaseFirestore.QueryDocumentSnapshot[] };
+  let sessionsSnapshot = { docs: [] as FirebaseFirestore.QueryDocumentSnapshot[] };
+  let totalTopicCount = 0;
+  let activeTopicCount = 0;
+  let subjectsSnapshot = { docs: [] as FirebaseFirestore.QueryDocumentSnapshot[] };
+  let studentSubjectsSnapshot = { docs: [] as FirebaseFirestore.QueryDocumentSnapshot[] };
+  let progressEventsSnapshot = { docs: [] as FirebaseFirestore.QueryDocumentSnapshot[] };
+
+  try {
+    [
+      studentUserCount,
+      profileCount,
+      profilesSnapshot,
+      sessionsSnapshot,
+      totalTopicCount,
+      activeTopicCount,
+      subjectsSnapshot,
+      studentSubjectsSnapshot,
+      progressEventsSnapshot,
+    ] = await Promise.all([
+      getCount(usersRef.where('role', '==', 'student')),
+      getCount(db.collection('student_profiles')),
+      db.collection('student_profiles').limit(500).get(),
+      db.collection('tutor_sessions').orderBy('updated_at', 'desc').limit(250).get(),
+      getCount(db.collection('topics')),
+      getCount(db.collection('topics').where('status', '==', 'active')),
+      db.collection('subjects').get(),
+      db.collection('student_subjects').get(),
+      db.collection('student_progress_events').where('created_at', '>=', thirtyDaysAgo()).get(),
+    ]);
+  } catch {
+    // Graceful fallback when Firestore quota is exhausted
+  }
 
   const totalStudents = Math.max(studentUserCount, profileCount);
   const sessionDocs = sessionsSnapshot.docs.map((doc) => doc.data());

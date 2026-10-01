@@ -7,6 +7,10 @@ import { normalizeUserRole } from '../types/user-role';
 import { asyncHandler } from '../utils/asyncHandler';
 import { sendCreated, sendSuccess } from '../utils/ApiResponse';
 import { AppError } from '../utils/AppError';
+import { listGrades, listSubjects, listTopics, type TopicQuery } from '../services/catalog.service';
+
+
+
 
 type AdminGradeLevel = {
   id: string;
@@ -483,17 +487,31 @@ async function requireSubjectForGrade(subjectId: string, gradeLevelId: string): 
 export const getAdminGrades = asyncHandler(async (req: Request, res: Response) => {
   assertAdmin(req);
 
-  const snapshot = await getFirestore()
-    .collection('grade_levels')
-    .withConverter(gradeLevelConverter)
-    .get();
+  try {
+    const snapshot = await getFirestore()
+      .collection('grade_levels')
+      .withConverter(gradeLevelConverter)
+      .get();
 
-  const grades = snapshot.docs
-    .map((doc) => toAdminGradeLevel(doc.data()))
-    .sort((left, right) => Number(right.number) - Number(left.number));
+    const grades = snapshot.docs
+      .map((doc) => toAdminGradeLevel(doc.data()))
+      .sort((left, right) => Number(right.number) - Number(left.number));
 
-  sendSuccess(res, { grades }, 'Grade levels loaded');
+    sendSuccess(res, { grades }, 'Grade levels loaded');
+  } catch {
+    const staticGrades: AdminGradeLevel[] = listGrades().map((g) => ({
+      id: g.grade_level_id,
+      grade_level_id: g.grade_level_id,
+      name: g.grade_name,
+      khmer: `ថ្នាក់ទី ${g.grade_number}`,
+      number: String(g.grade_number),
+      description: `Grade ${g.grade_number}`,
+      status: 'Active',
+    }));
+    sendSuccess(res, { grades: staticGrades }, 'Grade levels loaded');
+  }
 });
+
 
 export const createAdminGrade = asyncHandler(async (req: Request, res: Response) => {
   assertAdmin(req);
@@ -582,19 +600,38 @@ export const getAdminSubjects = asyncHandler(async (req: Request, res: Response)
   assertAdmin(req);
 
   const gradeLevelId = typeof req.query.grade_level_id === 'string' ? req.query.grade_level_id.trim() : '';
-  let query: FirebaseFirestore.Query = getFirestore().collection('subjects');
+  try {
+    let query: FirebaseFirestore.Query = getFirestore().collection('subjects');
 
-  if (gradeLevelId) {
-    query = query.where('grade_level_id', '==', gradeLevelId);
+    if (gradeLevelId) {
+      query = query.where('grade_level_id', '==', gradeLevelId);
+    }
+
+    const snapshot = await query.get();
+    const subjects = snapshot.docs
+      .map((doc) => toAdminSubject({ ...(doc.data() as SubjectDocument), subject_id: doc.id }))
+      .sort((left, right) => Number(left.order) - Number(right.order) || left.name.localeCompare(right.name));
+
+    sendSuccess(res, { subjects }, 'Subjects loaded');
+  } catch {
+    const all = listSubjects();
+    const subjects: AdminSubject[] = all.map((s) => ({
+      id: s.subject_id,
+      subject_id: s.subject_id,
+      grade_level_id: gradeLevelId || 'grade-12',
+      grade: gradeLevelId ? gradeLevelId.toUpperCase() : 'Grade 12',
+      name: s.subject_name,
+      khmer: s.subject_name,
+      code: s.subject_code,
+      icon: s.icon_url || s.subject_code.slice(0, 2).toLowerCase(),
+      description: s.description || '',
+      order: String(s.display_order),
+      status: 'Active',
+    }));
+    sendSuccess(res, { subjects }, 'Subjects loaded');
   }
-
-  const snapshot = await query.get();
-  const subjects = snapshot.docs
-    .map((doc) => toAdminSubject({ ...(doc.data() as SubjectDocument), subject_id: doc.id }))
-    .sort((left, right) => Number(left.order) - Number(right.order) || left.name.localeCompare(right.name));
-
-  sendSuccess(res, { subjects }, 'Subjects loaded');
 });
+
 
 export const createAdminSubject = asyncHandler(async (req: Request, res: Response) => {
   assertAdmin(req);
@@ -699,21 +736,55 @@ export const updateAdminSubject = asyncHandler(async (req: Request, res: Respons
 export const getAdminTopics = asyncHandler(async (req: Request, res: Response) => {
   assertAdmin(req);
 
-  let query: FirebaseFirestore.Query = getFirestore().collection('topics');
   const gradeLevelId = typeof req.query.grade_level_id === 'string' ? req.query.grade_level_id.trim() : '';
   const subjectId = typeof req.query.subject_id === 'string' ? req.query.subject_id.trim() : '';
 
-  if (gradeLevelId) query = query.where('grade_level_id', '==', gradeLevelId);
-  if (subjectId) query = query.where('subject_id', '==', subjectId);
+  try {
+    let query: FirebaseFirestore.Query = getFirestore().collection('topics');
 
-  const snapshot = await query.get();
-  const topics = snapshot.docs
-    .map((doc) => toAdminTopic({ ...(doc.data() as TopicDocument), topic_id: doc.id }))
-    .filter((topic) => topic.topic_id && topic.name)
-    .sort((left, right) => left.name.localeCompare(right.name));
+    if (gradeLevelId) query = query.where('grade_level_id', '==', gradeLevelId);
+    if (subjectId) query = query.where('subject_id', '==', subjectId);
 
-  sendSuccess(res, { topics }, 'Topics loaded');
+    const snapshot = await query.get();
+    const topics = snapshot.docs
+      .map((doc) => toAdminTopic({ ...(doc.data() as TopicDocument), topic_id: doc.id }))
+      .filter((topic) => topic.topic_id && topic.name)
+      .sort((left, right) => left.name.localeCompare(right.name));
+
+    sendSuccess(res, { topics }, 'Topics loaded');
+  } catch {
+    const queryInput: TopicQuery = {};
+    if (gradeLevelId) queryInput.grade_level_id = gradeLevelId;
+    if (subjectId) queryInput.subject_id = subjectId;
+    const staticTopics: AdminTopic[] = listTopics(queryInput).map((t) => ({
+      id: t.topic_id,
+      topic_id: t.topic_id,
+      grade_level_id: t.grade_level_id,
+      subject_id: t.subject_id,
+      grade: t.grade_level_id.toUpperCase(),
+      subject: t.subject_id.toUpperCase(),
+      name: t.topic_name,
+      khmer: t.topic_name,
+      code: t.topic_code,
+      description: t.learning_objective || '',
+      learning_objectives: t.learning_objective ? [t.learning_objective] : [],
+      difficulty:
+        t.difficulty_level === 'advanced'
+          ? 'Advanced'
+          : t.difficulty_level === 'intermediate'
+            ? 'Intermediate'
+            : 'Beginner',
+      prerequisites: [],
+      status: 'Active',
+      created_at: null,
+      updated_at: null,
+      created_by: 'system',
+      updated_by: 'system',
+    }));
+    sendSuccess(res, { topics: staticTopics }, 'Topics loaded');
+  }
 });
+
 
 export const createAdminTopic = asyncHandler(async (req: Request, res: Response) => {
   assertAdmin(req);

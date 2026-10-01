@@ -118,18 +118,25 @@ export const getAdminSettings = asyncHandler(async (req: Request, res: Response)
   assertAdmin(req);
 
   const db = getFirestore();
-  const userDoc = await db.collection('users').withConverter(userConverter).doc(req.user!.userId!).get();
+  let userDoc: FirebaseFirestore.DocumentSnapshot<User> | null = null;
+  try {
+    userDoc = await db.collection('users').withConverter(userConverter).doc(req.user!.userId!).get();
+  } catch {
+    // If Firestore is quota-limited, userDoc is null
+  }
+
   let adminUserData: User;
-  if (!userDoc.exists) {
+  if (!userDoc || !userDoc.exists) {
     if (
       req.user!.userId === 'local-admin' ||
-      (!env.isProductionLike && normalizeUserRole(req.user!.role ?? 'student') === 'admin')
+      req.user!.userId === 'seed-admin' ||
+      normalizeUserRole(req.user!.role ?? 'student') === 'admin'
     ) {
       adminUserData = {
         user_id: req.user!.userId!,
         firebase_uid: req.user!.uid,
-        email: req.user!.email ?? 'admin@rean.ai',
-        full_name: 'Administrator',
+        email: req.user!.email ?? (env.seedAdmin.email || 'admin@rean.ai'),
+        full_name: req.user!.userId === 'seed-admin' ? env.seedAdmin.fullName || 'Administrator' : 'Administrator',
         role: 'admin',
         profile_image_url: null,
         account_status: 'active',
@@ -146,9 +153,15 @@ export const getAdminSettings = asyncHandler(async (req: Request, res: Response)
     }
   }
 
-  const settingsDoc = await db.collection('admin_settings').doc(req.user!.userId!).get();
+  let settingsDoc: any = { exists: false, data: () => null };
+  try {
+    settingsDoc = await db.collection('admin_settings').doc(req.user!.userId!).get();
+  } catch {
+    // If Firestore is quota-limited, use default settings
+  }
   sendSuccess(res, buildSettingsPayload(adminUserData, settingsDoc.exists ? settingsDoc.data() as AdminSettingsDocument : null), 'Admin settings loaded');
 });
+
 
 export const updateAdminSettings = asyncHandler(async (req: Request, res: Response) => {
   assertAdmin(req);
