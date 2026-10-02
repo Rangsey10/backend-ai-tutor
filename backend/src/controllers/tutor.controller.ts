@@ -13,10 +13,8 @@ import {
   responseBelongsToUser,
   sendTutorTurn,
   streamTutorTurn,
-  scanTutorImage,
   transcribeTutorVoice,
   synthesizeTutorVoice,
-  validateTutorImageUpload,
   validateTutorAudioUpload,
   sendTutorTelemetry,
 } from '../services/tutor.service';
@@ -151,26 +149,6 @@ export const streamTurn = asyncHandler(async (req: Request, res: Response) => {
   } finally {
     if (!res.writableEnded) res.end();
   }
-});
-
-export const scanProblem = asyncHandler(async (req: Request, res: Response) => {
-  await assertStudentAiAccess(req.user!.uid);
-  if (!Buffer.isBuffer(req.body)) {
-    throw new AppError('Upload an image file', 400, true, 'INVALID_IMAGE_UPLOAD');
-  }
-  const contentType = (req.header('content-type') ?? '').split(';')[0].trim().toLowerCase();
-  const filename = (req.header('x-upload-filename') ?? 'problem-image').trim().slice(0, 180);
-  validateTutorImageUpload(req.body, contentType);
-  const result = await scanTutorImage(req.user!.uid, req.body, contentType, filename, {
-    requestId: requestId(req),
-  });
-  // Deliberately log only operation metadata — never image bytes or OCR text.
-  logger.info('Visual Tutor security audit', {
-    audit_event: 'visual_tutor_scan_completed',
-    user_id: req.user!.uid,
-    bytes: req.body.length,
-  });
-  res.status(200).json({ success: true, message: 'Image read successfully', data: result });
 });
 
 export const transcribeVoice = asyncHandler(async (req: Request, res: Response) => {

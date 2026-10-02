@@ -160,8 +160,10 @@ describe('teaching plan contract', () => {
     });
 
     expect(() => validatePublicTutorTurn(recovered)).not.toThrow();
-    const actions = (recovered as any).teaching_plan.visible_board_actions;
-    expect(actions.map((action: any) => action.id)).toEqual([
+    const actions = (recovered as {
+      teaching_plan: { visible_board_actions: Array<{ id: string; type: string; expected_step?: unknown }> };
+    }).teaching_plan.visible_board_actions;
+    expect(actions.map((action) => action.id)).toEqual([
       'equation', 'legacy-private', 'board-recovery-2',
     ]);
     expect(actions[1].expected_step).toBeUndefined();

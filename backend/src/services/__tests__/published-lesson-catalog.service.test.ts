@@ -1,5 +1,8 @@
 import { getFirestore } from '../../config/firebase';
-import { listStudentPublishedLessons } from '../published-lesson-catalog.service';
+import {
+  listStudentPublishedLessons,
+  getLessonDetailedContent,
+} from '../published-lesson-catalog.service';
 
 jest.mock('../../config/firebase', () => ({
   getFirestore: jest.fn(),
@@ -19,11 +22,16 @@ function firestoreFixture(seed: Record<string, Record<string, Row>>) {
     const query = {
       where: (field: string, _operator: string, value: unknown) =>
         collection(name, [...filters, [field, value]]),
-      get: async () => ({
-        docs: [...rows.entries()]
-          .filter(([, row]) => filters.every(([field, value]) => row[field] === value))
-          .map(([id, row]) => ({ id, data: () => row })),
-      }),
+      limit: () => query,
+      get: async () => {
+        const matching = [...rows.entries()].filter(([, row]) =>
+          filters.every(([field, value]) => row[field] === value)
+        );
+        return {
+          empty: matching.length === 0,
+          docs: matching.map(([id, row]) => ({ id, data: () => row })),
+        };
+      },
       doc: (id: string) => ({
         get: async () => {
           const row = rows.get(id);
@@ -198,5 +206,164 @@ describe('student published lesson catalog', () => {
     expect(lessons[0]).not.toHaveProperty('reviewer_notes');
     expect(lessons[0]).not.toHaveProperty('hidden_answer');
     expect(lessons[0]).not.toHaveProperty('internal_metadata');
+  });
+
+  it('populates descoped Grade 12 STEM curriculum across Math, Physics, and Chemistry when unseeded', async () => {
+    firestoreFixture({});
+
+    const allLessons = await listStudentPublishedLessons();
+    expect(allLessons.length).toBeGreaterThanOrEqual(15);
+
+    // Verify all 3 subjects exist
+    const subjects = new Set(allLessons.map((l) => l.subject_id));
+    expect(subjects).toContain('math');
+    expect(subjects).toContain('physics');
+    expect(subjects).toContain('chemistry');
+
+    // Verify all are Grade 12
+    expect(allLessons.every((l) => l.grade_number === 12)).toBe(true);
+
+    // Verify Khmer and English descriptions & titles
+    for (const lesson of allLessons) {
+      expect(lesson.title.trim().length).toBeGreaterThan(0);
+      expect(lesson.description).toBeTruthy();
+      expect(lesson.topic_khmer_name).toBeTruthy();
+    }
+
+    // Verify available topics: limits, kinematics, stoichiometry
+    const available = allLessons.filter((l) => l.is_available);
+    expect(available.map((l) => l.topic_id)).toEqual(
+      expect.arrayContaining([
+        'limits-of-functions-g12',
+        'kinematics-g12',
+        'stoichiometry-g12',
+      ])
+    );
+    for (const lesson of available) {
+      expect(lesson.starter_problem).toBeTruthy();
+    }
+
+    // Verify unavailable topics are marked is_available = false
+    const unavailable = allLessons.filter((l) => !l.is_available);
+    expect(unavailable.length).toBeGreaterThan(0);
+    expect(unavailable.every((l) => l.is_available === false)).toBe(true);
+
+    // Verify filtering by subject works
+    const physicsOnly = await listStudentPublishedLessons({ subject_id: 'physics' });
+    expect(physicsOnly.length).toBe(5);
+    expect(physicsOnly.every((l) => l.subject_id === 'physics')).toBe(true);
+  });
+
+  describe('getLessonDetailedContent', () => {
+    it('returns detailed pedagogical content from Firestore when available', async () => {
+      firestoreFixture({
+        admin_curriculum_content: {
+          'limit-content-1': {
+            content_id: 'limit-content-1',
+            curriculum_version_id: 'v-math-12',
+            topic_id: 'limits-of-functions-g12',
+            title: 'Limits and Asymptotes',
+            summary: 'Understanding finite and infinite limits',
+            body: 'Detailed explanations of limit behaviors...',
+            grade_number: 12,
+            subject_id: 'math',
+            subject_name: 'Mathematics',
+            concepts: [
+              {
+                title: 'Two-Sided Limits',
+                summary: 'Equality of left and right limits',
+                body: 'lim_{x->a} f(x) = L iff left and right limits equal L.',
+              },
+            ],
+            formulas: [
+              {
+                name: 'Quotient Rule for Limits',
+                expression: '\\lim_{x \\to a} \\frac{f(x)}{g(x)} = \\frac{L}{M}',
+                explanation: 'Valid when M is non-zero',
+              },
+            ],
+            examples: [
+              {
+                problem: 'Evaluate \\lim_{x \\to 2} (x + 3)',
+                solution: '5',
+                steps: ['Direct substitution: 2 + 3 = 5'],
+              },
+            ],
+            common_misconceptions: [
+              {
+                text: 'Dividing by zero is always infinity',
+                correction: '0/0 is indeterminate and requires factoring',
+              },
+            ],
+            khmer_terms: { limit: 'លីមីត', asymptote: 'អាស៊ីមតូត' },
+            starter_problem: '\\lim_{x \\to 2} (x + 3)',
+          },
+        },
+      });
+
+      const content = await getLessonDetailedContent('limit-content-1');
+      expect(content).toEqual(
+        expect.objectContaining({
+          lesson_id: 'limit-content-1',
+          title: 'Limits and Asymptotes',
+          subject_id: 'math',
+          grade_number: 12,
+          starter_problem: '\\lim_{x \\to 2} (x + 3)',
+        })
+      );
+      expect(content.concepts).toHaveLength(1);
+      expect(content.concepts[0].title).toBe('Two-Sided Limits');
+      expect(content.formulas).toHaveLength(1);
+      expect(content.formulas[0].name).toBe('Quotient Rule for Limits');
+      expect(content.examples).toHaveLength(1);
+      expect(content.examples[0].problem).toBe('Evaluate \\lim_{x \\to 2} (x + 3)');
+      expect(content.common_misconceptions[0]).toContain('0/0 is indeterminate');
+      expect(content.khmer_terms).toEqual({ limit: 'លីមីត', asymptote: 'អាស៊ីមតូត' });
+    });
+
+    it('falls back smoothly to pre-bundled STEM curriculum content when unseeded', async () => {
+      firestoreFixture({});
+
+      // 1. Limits
+      const limitsContent = await getLessonDetailedContent('math.g12.lesson1.limits-of-functions');
+      expect(limitsContent.lesson_id).toBe('math.g12.lesson1.limits-of-functions');
+      expect(limitsContent.title).toContain('Limits of Functions');
+      expect(limitsContent.concepts.length).toBeGreaterThan(0);
+      expect(limitsContent.formulas.length).toBeGreaterThan(0);
+      expect(limitsContent.examples.length).toBeGreaterThan(0);
+      expect(limitsContent.common_misconceptions.length).toBeGreaterThan(0);
+      expect(limitsContent.khmer_terms.limit).toBe('លីមីត');
+      expect(limitsContent.starter_problem).toBe('\\lim_{x \\to 3} \\frac{x^2 - 9}{x - 3}');
+
+      // 2. Kinematics
+      const kinematicsContent = await getLessonDetailedContent('physics.g12.lesson1.kinematics');
+      expect(kinematicsContent.subject_id).toBe('physics');
+      expect(kinematicsContent.formulas.some((f) => f.expression.includes('v = v_0 + at'))).toBe(true);
+
+      // 3. Stoichiometry
+      const stoichContent = await getLessonDetailedContent('chemistry.g12.lesson1.stoichiometry');
+      expect(stoichContent.subject_id).toBe('chemistry');
+      expect(stoichContent.formulas.some((f) => f.expression.includes('n = \\frac{m}{M}'))).toBe(true);
+
+      // 4. Complex Numbers
+      const complexContent = await getLessonDetailedContent('math.g12.lesson4.complex-numbers');
+      expect(complexContent.khmer_terms['complex number']).toBe('ចំនួនកុំផ្លិច');
+
+      // 5. Arbitrary ID (never crashes or returns 500)
+      const genericContent = await getLessonDetailedContent('unknown-lesson-id');
+      expect(genericContent.lesson_id).toBe('unknown-lesson-id');
+      expect(genericContent.concepts.length).toBeGreaterThan(0);
+    });
+
+    it('falls back smoothly without throwing when Firestore errors (e.g. quota exhausted)', async () => {
+      mockedGetFirestore.mockImplementationOnce(() => {
+        throw new Error('8 RESOURCE_EXHAUSTED: Quota exceeded.');
+      });
+
+      const content = await getLessonDetailedContent('math.g12.lesson1.limits-of-functions');
+      expect(content).toBeDefined();
+      expect(content.title).toContain('Limits of Functions');
+      expect(content.concepts.length).toBeGreaterThan(0);
+    });
   });
 });

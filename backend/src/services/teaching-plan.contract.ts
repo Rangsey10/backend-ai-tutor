@@ -14,6 +14,13 @@ const actions = new Set([
   'draw_rectangle', 'circle', 'draw_arrow', 'draw_point', 'show_hint', 'show_feedback', 'student_task', 'show_number_line',
   'draw_axes', 'show_graph', 'plot_function', 'graph_annotation', 'show_table',
   'final_answer_reveal',
+  // STEM diagram primitives. Declared by TeachingPlanActionType in
+  // ai-service/api/services/visual_tutor/teaching_plan_contract.py and rendered by
+  // ai_tutor/lib/features/visual_tutor/presentation/live_board_state.dart. Omitting
+  // them here replaced every physics and chemistry diagram with a "could not be
+  // shown" notice.
+  'draw_free_body_diagram', 'draw_molecule', 'draw_atom_model',
+  'draw_particle_diagram', 'draw_circuit_diagram', 'show_reaction_layout',
 ]);
 const nextStates = new Set([
   'continue', 'reteach', 'ask_for_work', 'offer_practice', 'reveal_progressively',
@@ -46,6 +53,11 @@ export function recoverPublicTutorTurn(value: unknown): unknown {
     'points', 'label', 'number_line', 'table', 'section_id', 'layout_zone',
     'layout_flow', 'problem_instance_id', 'active_step_id', 'action_id',
     'board_version', 'base_board_version',
+    // STEM diagram payloads. These are public: the Flutter renderer needs them to
+    // draw the diagram, and they carry only bounded labels, counts and indices.
+    // Omitting them stripped the data and turned every diagram into a notice.
+    'forces', 'molecule_bonds', 'atom_model', 'particle_diagram',
+    'circuit_diagram', 'reaction_layout',
   ]);
   const privateKeys = new Set([
     'accepted_answer_forms', 'expected_operation', 'expected_step', 'hidden',
@@ -216,6 +228,136 @@ function validatePoints(value: unknown, label: string, requireY = true): void {
   }
 }
 
+/**
+ * Payload rules for the STEM diagram primitives.
+ *
+ * Mirrors the `model_post_init` checks in
+ * ai-service/api/services/visual_tutor/teaching_plan_contract.py, so a diagram the
+ * AI service would refuse to build is also refused here. Everything is bounded
+ * declarative data — labels, counts and indices — never anything the renderer
+ * executes.
+ */
+function validateStemPrimitive(type: string, action: JsonObject | null): void {
+  const requireObject = (value: unknown, what: string): JsonObject => {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      throw new TeachingPlanContractError(`${what} needs its diagram data`);
+    }
+    return value as JsonObject;
+  };
+
+  if (type === 'draw_free_body_diagram') {
+    const forces = action?.forces;
+    if (!Array.isArray(forces) || forces.length < 1 || forces.length > 8) {
+      throw new TeachingPlanContractError(
+        'free body diagram needs between one and eight typed forces'
+      );
+    }
+    for (const force of forces) {
+      const entry = requireObject(force, 'free body force');
+      if (typeof entry.label !== 'string' || !entry.label.trim() || entry.label.length > 120) {
+        throw new TeachingPlanContractError('free body force needs a bounded label');
+      }
+      safeText(entry.label, 'free body force label');
+      if (entry.magnitude !== undefined && typeof entry.magnitude !== 'number') {
+        throw new TeachingPlanContractError('free body force magnitude must be numeric');
+      }
+    }
+  }
+
+  if (type === 'draw_molecule') {
+    const bonds = action?.molecule_bonds;
+    if (bonds !== undefined) {
+      if (!Array.isArray(bonds) || bonds.length > 48) {
+        throw new TeachingPlanContractError('molecule bonds are invalid');
+      }
+      const atomCount = Array.isArray(action?.points) ? action.points.length : 0;
+      for (const bond of bonds) {
+        const entry = requireObject(bond, 'molecule bond');
+        const from = entry.from_index;
+        const to = entry.to_index;
+        if (!Number.isInteger(from) || !Number.isInteger(to) ||
+            (from as number) < 0 || (to as number) < 0 ||
+            (from as number) >= atomCount || (to as number) >= atomCount) {
+          throw new TeachingPlanContractError('molecule bond points outside its atom list');
+        }
+        if (from === to) {
+          throw new TeachingPlanContractError('molecule bond needs two distinct atoms');
+        }
+      }
+    }
+  }
+
+  if (type === 'draw_atom_model') {
+    const model = requireObject(action?.atom_model, 'atom model');
+    if (typeof model.symbol !== 'string' || !model.symbol.trim() || model.symbol.length > 8) {
+      throw new TeachingPlanContractError('atom model needs a bounded element symbol');
+    }
+    safeText(model.symbol, 'atom model symbol');
+    for (const key of ['protons', 'neutrons'] as const) {
+      const value = model[key];
+      if (value !== undefined && (!Number.isInteger(value) || (value as number) < 0)) {
+        throw new TeachingPlanContractError(`atom model ${key} must be a whole count`);
+      }
+    }
+    if (model.shells !== undefined) {
+      if (!Array.isArray(model.shells) || model.shells.length > 8 ||
+          model.shells.some((shell) => !Number.isInteger(shell) || (shell as number) < 0)) {
+        throw new TeachingPlanContractError('atom model shells are invalid');
+      }
+    }
+  }
+
+  if (type === 'draw_particle_diagram') {
+    const diagram = requireObject(action?.particle_diagram, 'particle diagram');
+    if (typeof diagram.state !== 'string' ||
+        !['solid', 'liquid', 'gas'].includes(diagram.state)) {
+      throw new TeachingPlanContractError('particle diagram needs a state of matter');
+    }
+    const count = diagram.particle_count;
+    if (count !== undefined &&
+        (!Number.isInteger(count) || (count as number) < 1 || (count as number) > 64)) {
+      throw new TeachingPlanContractError('particle diagram count is out of range');
+    }
+  }
+
+  if (type === 'draw_circuit_diagram') {
+    const diagram = requireObject(action?.circuit_diagram, 'circuit diagram');
+    const components = diagram.components;
+    if (!Array.isArray(components) || components.length < 1 || components.length > 16) {
+      throw new TeachingPlanContractError('circuit diagram needs between one and sixteen components');
+    }
+    for (const component of components) {
+      const entry = requireObject(component, 'circuit component');
+      if (typeof entry.kind !== 'string' || !entry.kind.trim() || entry.kind.length > 40) {
+        throw new TeachingPlanContractError('circuit component needs a bounded kind');
+      }
+      safeText(entry.kind, 'circuit component kind');
+      if (entry.label !== undefined) {
+        if (typeof entry.label !== 'string' || entry.label.length > 120) {
+          throw new TeachingPlanContractError('circuit component label is invalid');
+        }
+        safeText(entry.label, 'circuit component label');
+      }
+    }
+  }
+
+  if (type === 'show_reaction_layout') {
+    const layout = requireObject(action?.reaction_layout, 'reaction layout');
+    for (const side of ['reactants', 'products'] as const) {
+      const species = layout[side];
+      if (!Array.isArray(species) || species.length < 1 || species.length > 12) {
+        throw new TeachingPlanContractError(`reaction layout ${side} are invalid`);
+      }
+      for (const formula of species) {
+        if (typeof formula !== 'string' || !formula.trim() || formula.length > 120) {
+          throw new TeachingPlanContractError(`reaction layout ${side} need bounded formulas`);
+        }
+        safeText(formula, `reaction layout ${side}`);
+      }
+    }
+  }
+}
+
 function validateNumberLine(value: unknown): void {
   const line = object(value);
   const allowed = new Set(['min', 'max', 'step', 'labels']);
@@ -290,6 +432,10 @@ export function validateTeachingPlan(value: unknown): void {
       // Schema-v2 identity fields are injected by the public projection and
       // remain harmless, opaque identifiers at this gateway boundary.
       'problem_instance_id', 'active_step_id', 'action_id', 'board_version', 'base_board_version',
+      // Payloads for the STEM diagram primitives above. Bounded, declarative
+      // geometry and labels; each is validated by type below.
+      'forces', 'molecule_bonds', 'atom_model', 'particle_diagram',
+      'circuit_diagram', 'reaction_layout',
     ]);
     if (!action || Object.keys(action).some((key) => !allowedActionKeys.has(key))) {
       throw new TeachingPlanContractError('teaching-plan action contains an unknown field');
@@ -362,6 +508,7 @@ export function validateTeachingPlan(value: unknown): void {
     if (type === 'draw_point' && (typeof action?.x !== 'number' || typeof action?.y !== 'number')) {
       throw new TeachingPlanContractError('point action needs bounded coordinates');
     }
+    validateStemPrimitive(type, action);
     if (type === 'show_number_line') validateNumberLine(action?.number_line);
     if (type === 'show_table') validateTable(action?.table);
     if (type === 'student_task') {
@@ -461,6 +608,9 @@ export function validatePublicTutorTurn(value: unknown): void {
     'explanation_required', 'points', 'label', 'number_line', 'table',
     'section_id', 'layout_zone', 'layout_flow',
     'problem_instance_id', 'active_step_id', 'action_id', 'board_version', 'base_board_version',
+    // STEM diagram payloads the renderer needs; bounded declarative data only.
+    'forces', 'molecule_bonds', 'atom_model', 'particle_diagram',
+    'circuit_diagram', 'reaction_layout',
   ]);
   for (const action of publicActions) {
     const item = object(action);

@@ -1,6 +1,6 @@
 import request from 'supertest';
 import { createApp } from '../../app';
-import { getAuth } from '../../config/firebase';
+import { getAuth, getFirestore } from '../../config/firebase';
 import {
   getDashboardSummary,
   getRecentActivity,
@@ -16,6 +16,7 @@ import { AppError } from '../../utils/AppError';
 
 jest.mock('../../config/firebase', () => ({
   getAuth: jest.fn(),
+  getFirestore: jest.fn(),
 }));
 
 jest.mock('../../services/progress.service', () => ({
@@ -61,7 +62,31 @@ const mockedGetWeakTopicSummary = getWeakTopicSummary as jest.MockedFunction<
   typeof getWeakTopicSummary
 >;
 
-const app = createApp();
+let app: ReturnType<typeof createApp>;
+
+function mockUserDocument(uid = 'firebase-uid') {
+  const snapshot = {
+    exists: true,
+    data: () => ({
+      user_id: uid,
+      firebase_uid: uid,
+      full_name: 'Test Student',
+      email: 'student@example.com',
+      role: 'student',
+      account_status: 'active',
+    }),
+  };
+  const doc = jest.fn().mockReturnValue({
+    get: jest.fn().mockResolvedValue(snapshot),
+    set: jest.fn().mockResolvedValue(undefined),
+  });
+  (getFirestore as jest.Mock).mockReturnValue({
+    collection: jest.fn().mockReturnValue({
+      withConverter: jest.fn().mockReturnValue({ doc }),
+      doc,
+    }),
+  } as never);
+}
 
 function mockToken(role = 'student') {
   mockedGetAuth.mockReturnValue({
@@ -79,8 +104,10 @@ function authHeader(token = 'valid-token') {
 
 describe('student progress API', () => {
   beforeEach(() => {
+    app = createApp();
     jest.clearAllMocks();
     mockToken();
+    mockUserDocument();
     mockedAssertTutorSessionOwnership.mockResolvedValue(undefined);
     mockedAssertQuizAttemptOwnership.mockResolvedValue(undefined);
     mockedStoreTutorSessionSummary.mockResolvedValue({
@@ -197,6 +224,26 @@ describe('student progress API', () => {
     });
   });
 
+  it('returns structured validation details for an invalid lesson completion', async () => {
+    const response = await request(app)
+      .post('/api/v1/progress/lessons/complete')
+      .set(authHeader())
+      .send({ tutor_session_id: 'session-1' })
+      .expect(400);
+
+    expect(response.body).toMatchObject({
+      success: false,
+      message: 'Request validation failed',
+      error: {
+        code: 'VALIDATION_ERROR',
+        details: expect.arrayContaining([
+          expect.objectContaining({ path: 'topic_id' }),
+        ]),
+      },
+    });
+    expect(mockedStoreLessonCompletion).not.toHaveBeenCalled();
+  });
+
   it('stores student answer and quiz attempt summaries', async () => {
     await request(app)
       .post('/api/v1/progress/answers')
@@ -299,7 +346,14 @@ describe('student progress API', () => {
     expect(dashboardResponse.body.data.empty_state).toBe(false);
     expect(mockedGetDashboardSummary).toHaveBeenCalledWith('firebase-uid');
 
-    await request(app).get('/api/v1/progress/recent-activity').set(authHeader()).expect(200);
+    const recentActivityResponse = await request(app)
+      .get('/api/v1/progress/recent-activity')
+      .set(authHeader())
+      .expect(200);
+    expect(recentActivityResponse.body).toMatchObject({
+      success: true,
+      data: expect.any(Array),
+    });
     expect(mockedGetRecentActivity).toHaveBeenCalledWith('firebase-uid');
 
     await request(app).get('/api/v1/progress/weak-topic').set(authHeader()).expect(200);

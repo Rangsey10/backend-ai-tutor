@@ -311,3 +311,93 @@ describe('tutor.service ai-service proxy', () => {
     ]);
   });
 });
+
+describe('a typed message after the answer is on the board', () => {
+  /**
+   * While a problem is unsolved, typed text is the student working, and it must
+   * stay a step: a correct step of "3x + 4 = 19" is "3x = 15", which would
+   * otherwise be mistaken for a brand new equation and restart the problem.
+   *
+   * Once the answer has been revealed there is no step left to answer. A
+   * student typing a whole new problem there had it graded against the problem
+   * they had just finished, and nothing on screen said so -- they saw the old
+   * solution and assumed the tutor was wrong.
+   */
+  const turn = (
+    currentState: Record<string, unknown>,
+    message = 'lim (x^2-4)/(x-2) as x approaches 2'
+  ) => ({
+    subject: 'Mathematics',
+    message,
+    action: 'student_message' as const,
+    input_type: 'text' as const,
+    language_mode: 'english' as const,
+    current_state: currentState,
+  });
+
+  const forwardedAction = async (
+    currentState: Record<string, unknown>,
+    message?: string
+  ) => {
+    fetchMock.mockResolvedValue(
+      new Response(JSON.stringify({ schema_version: 2, session_id: 's' }), { status: 200 })
+    );
+    // The stub reply is not a valid public turn envelope, so the call rejects --
+    // but the upstream request has already been made, which is what is under test.
+    await sendTutorTurn('firebase-uid', turn(currentState, message) as never, {}).catch(
+      () => undefined
+    );
+    const body = JSON.parse(String(fetchMock.mock.calls[0][1].body));
+    return body.action;
+  };
+
+  it('is a new problem once the final answer has been revealed', async () => {
+    expect(
+      await forwardedAction({ problem_text: '3x + 4 = 19', final_answer_revealed: true })
+    ).toBe('submit_problem');
+  });
+
+  it('is still a step while the problem is unsolved', async () => {
+    expect(
+      await forwardedAction({ problem_text: '3x + 4 = 19', final_answer_revealed: false })
+    ).toBe('submit_step');
+  });
+
+  it('is a new problem when no problem is on the board', async () => {
+    expect(await forwardedAction({})).toBe('submit_problem');
+  });
+
+  /**
+   * A finished solution does not mean the student has moved on. Asking about
+   * the working is the whole point of the board, and the AI service answers
+   * those as submit_step against the problem already in state -- that is what
+   * produces "About Step 4 - Cancel the common factor". Forwarding them as
+   * submit_problem made the tutor try to solve the question itself, so asking
+   * for more detail on a step just re-ran the solver.
+   */
+  const solved = { problem_text: 'lim (x^2-4)/(x-2) as x approaches 2', final_answer_revealed: true };
+
+  it.each([
+    'explain step 2 in more detail',
+    'why can we cancel (x-2)?',
+    'I do not understand step 3',
+    'can you explain that again',
+    'how did you get x = 2',
+  ])('asks about the finished work rather than starting over: %s', async (message) => {
+    expect(await forwardedAction(solved, message)).toBe('submit_step');
+  });
+
+  it.each([
+    'lim (x^2-9)/(x-3) as x approaches 3',
+    'solve x^2 - 5x + 6 = 0',
+    'A car starts from rest and accelerates at 2 m/s^2 for 5 s. Find its final velocity.',
+  ])('still starts over for a genuinely new problem: %s', async (message) => {
+    expect(await forwardedAction(solved, message)).toBe('submit_problem');
+  });
+
+  it('treats a Khmer question about the work as a question', async () => {
+    // Khmer is written without spaces between words, so this must never be
+    // matched with a word boundary.
+    expect(await forwardedAction(solved, 'ពន្យល់ជំហានទី ២ បន្ថែម')).toBe('submit_step');
+  });
+});

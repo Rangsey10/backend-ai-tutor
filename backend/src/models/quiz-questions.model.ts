@@ -20,7 +20,9 @@ export interface QuizQuestion {
 }
 
 // TODO: confirm remaining fields with ERD
-// Service-layer TODO: math-answer quiz questions should route through mathematical_verifications before being marked correct.
+// Free-text maths answers are graded through the AI service's SymPy answer
+// verifier; see `gradeFreeTextAnswer` in services/quiz.service.ts. The outcome is
+// recorded on each QuizAnswer as `verification`.
 export interface QuizQuestionCreateInput {
   quiz_id: string;
   question_order: number;

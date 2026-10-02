@@ -23,7 +23,8 @@ function firestoreDouble() {
   return {
     collection(name: string) {
       const documents = collectionDocuments(name);
-      return {
+      const colRef = {
+        withConverter: () => colRef,
         doc(id: string) {
           return {
             async get() {
@@ -41,6 +42,7 @@ function firestoreDouble() {
           };
         },
       };
+      return colRef;
     },
   };
 }
@@ -54,7 +56,7 @@ jest.mock('../../config/firebase', () => ({
 const mockedGetAuth = getAuth as jest.MockedFunction<typeof getAuth>;
 const mockedGetFirestore = getFirestore as jest.MockedFunction<typeof getFirestore>;
 const mockedIsFirebaseInitialized = isFirebaseInitialized as jest.MockedFunction<typeof isFirebaseInitialized>;
-const app = createApp();
+let app: ReturnType<typeof createApp>;
 
 function addReview(overrides: Document = {}): void {
   collectionDocuments('reported_ai_responses').set('review-1', {
@@ -77,6 +79,7 @@ function addReview(overrides: Document = {}): void {
 }
 
 beforeEach(() => {
+  app = createApp();
   collections.clear();
   addReview();
   jest.clearAllMocks();

@@ -21,7 +21,13 @@ export async function decideAdminAiReview(reviewId: string, decision: string, id
   const idem = db.collection('admin_ai_review_idempotency').doc(`${reviewId}-${idempotencyKey}`); const prior = await idem.get(); if (prior.exists) return doc.data();
   const report = doc.data() as Record<string, unknown>; const status = decision === 'resolve' ? 'resolved' : decision === 'escalate' ? 'escalated' : decision === 'mark_reviewed' ? 'triaged' : String(report.review_status ?? 'pending'); const now = Timestamp.now();
   const studentId = safe(report.student_profile_id); if ((decision === 'restrict_student' || decision === 'restore_student_access') && !studentId) throw new AppError('Review has no student context', 400);
-  if (decision === 'restrict_student' || decision === 'restore_student_access') { await db.collection('student_ai_restrictions').doc(studentId!).set({ student_id: studentId, restricted: decision === 'restrict_student', reason: safe(note), updated_by: adminId, updated_at: now }, { merge: true }); incrementMetric('student_restriction_events_total'); await db.collection('student_notifications').doc(`restriction-${reviewId}-${decision}`).set({ student_id: studentId, type: decision, title: decision === 'restrict_student' ? 'Tutor access temporarily unavailable' : 'Tutor access restored', body: decision === 'restrict_student' ? 'Your Tutor access is temporarily unavailable. Please contact your teacher for support.' : 'You can use the Tutor again.', created_at: now, read_at: null }, { merge: true }); }
+  if (decision === 'restrict_student' || decision === 'restore_student_access') {
+    clearStudentAiRestrictionCache(studentId!);
+    await db.collection('student_ai_restrictions').doc(studentId!).set({ student_id: studentId, restricted: decision === 'restrict_student', reason: safe(note), updated_by: adminId, updated_at: now }, { merge: true });
+    clearStudentAiRestrictionCache(studentId!);
+    incrementMetric('student_restriction_events_total');
+    await db.collection('student_notifications').doc(`restriction-${reviewId}-${decision}`).set({ student_id: studentId, type: decision, title: decision === 'restrict_student' ? 'Tutor access temporarily unavailable' : 'Tutor access restored', body: decision === 'restrict_student' ? 'Your Tutor access is temporarily unavailable. Please contact your teacher for support.' : 'You can use the Tutor again.', created_at: now, read_at: null }, { merge: true });
+  }
   const publicResolution = decision === 'resolve' && safe(note) ? safe(note) : undefined;
   await ref.set({ review_status: status, updated_at: now, review_history: [...(Array.isArray(report.review_history) ? report.review_history : []), { status, changed_at: now, reviewer_id: adminId }], last_review_note: safe(note), ...(publicResolution ? { public_resolution_message: publicResolution } : {}) }, { merge: true });
   if (decision === 'resolve' && studentId) await db.collection('student_notifications').doc(`report-${reviewId}-resolved`).set({ student_id: studentId, type: 'report_resolved', title: 'Your Tutor report was reviewed', body: publicResolution ?? 'Your report has been reviewed. Thank you for helping improve the Tutor.', created_at: now, read_at: null }, { merge: true });
@@ -29,11 +35,95 @@ export async function decideAdminAiReview(reviewId: string, decision: string, id
   await db.collection('admin_audit_logs').doc(`ai-review-${reviewId}-${decision}-${randomUUID()}`).set({ actor_id: adminId, action: `ai_review.${decision}`, resource_type: 'ai_review', resource_id: reviewId, student_id: studentId, created_at: now });
   return { ...report, review_status: status, updated_at: now };
 }
-export async function assertStudentAiAccess(userId: string) { const doc = await getFirestore().collection('student_ai_restrictions').doc(userId).get(); if (doc.exists && doc.data()?.restricted === true) throw new AppError('AI Tutor access is temporarily restricted. Please contact your teacher.', 403, true, 'AI_FEATURE_RESTRICTED'); }
+
+interface RestrictionCacheEntry {
+  restricted: boolean;
+  reason: string | null;
+  restrictedAt: string | null;
+  expiresAt: number;
+}
+const restrictionCache = new Map<string, RestrictionCacheEntry>();
+
+export function clearStudentAiRestrictionCache(userId?: string): void {
+  if (userId) {
+    restrictionCache.delete(userId);
+  } else {
+    restrictionCache.clear();
+  }
+}
+
+export async function assertStudentAiAccess(userId: string): Promise<void> {
+  const cached = restrictionCache.get(userId);
+  if (process.env.NODE_ENV !== 'test' && cached && Date.now() < cached.expiresAt) {
+    if (cached.restricted) {
+      throw new AppError('AI Tutor access is temporarily restricted. Please contact your teacher.', 403, true, 'AI_FEATURE_RESTRICTED');
+    }
+    return;
+  }
+
+  try {
+    const doc = await getFirestore().collection('student_ai_restrictions').doc(userId).get();
+    const isRestricted = doc.exists && doc.data()?.restricted === true;
+    const updatedAt = doc.exists ? (doc.data() as Record<string, unknown>).updated_at : null;
+    const reason = isRestricted ? 'Tutor access is temporarily unavailable. Please contact your teacher for support.' : null;
+
+    restrictionCache.set(userId, {
+      restricted: isRestricted,
+      reason,
+      restrictedAt: iso(updatedAt),
+      expiresAt: Date.now() + 60_000,
+    });
+
+    if (isRestricted) {
+      throw new AppError('AI Tutor access is temporarily restricted. Please contact your teacher.', 403, true, 'AI_FEATURE_RESTRICTED');
+    }
+  } catch (error) {
+    if (error instanceof AppError) throw error;
+    // Log warning and fail open so quota limits or transient db errors do not lock out students
+    console.warn(`[assertStudentAiAccess] Firestore check failed for user ${userId}, failing open:`, (error as Error)?.message || error);
+    restrictionCache.set(userId, {
+      restricted: false,
+      reason: null,
+      restrictedAt: null,
+      expiresAt: Date.now() + 30_000,
+    });
+  }
+}
 
 export async function getStudentAiRestrictionStatus(userId: string) {
-  const doc = await getFirestore().collection('student_ai_restrictions').doc(userId).get();
-  const value = doc.exists ? doc.data() as Record<string, unknown> : {};
-  const updatedAt = value.updated_at;
-  return { restricted: value.restricted === true, reason: value.restricted === true ? 'Tutor access is temporarily unavailable. Please contact your teacher for support.' : null, restricted_at: iso(updatedAt), support_guidance: value.restricted === true ? 'Contact your teacher or school support team.' : null };
+  const cached = restrictionCache.get(userId);
+  if (process.env.NODE_ENV !== 'test' && cached && Date.now() < cached.expiresAt) {
+    return {
+      restricted: cached.restricted,
+      reason: cached.reason,
+      restricted_at: cached.restrictedAt,
+      support_guidance: cached.restricted ? 'Contact your teacher or school support team.' : null,
+    };
+  }
+
+  try {
+    const doc = await getFirestore().collection('student_ai_restrictions').doc(userId).get();
+    const value = doc.exists ? (doc.data() as Record<string, unknown>) : {};
+    const updatedAt = value.updated_at;
+    const isRestricted = value.restricted === true;
+    const reason = isRestricted ? 'Tutor access is temporarily unavailable. Please contact your teacher for support.' : null;
+    const restrictedAt = iso(updatedAt);
+
+    restrictionCache.set(userId, {
+      restricted: isRestricted,
+      reason,
+      restrictedAt,
+      expiresAt: Date.now() + 60_000,
+    });
+
+    return {
+      restricted: isRestricted,
+      reason,
+      restricted_at: restrictedAt,
+      support_guidance: isRestricted ? 'Contact your teacher or school support team.' : null,
+    };
+  } catch (error) {
+    console.warn(`[getStudentAiRestrictionStatus] Firestore check failed for user ${userId}, returning unrestricted status:`, (error as Error)?.message || error);
+    return { restricted: false, reason: null, restricted_at: null, support_guidance: null };
+  }
 }

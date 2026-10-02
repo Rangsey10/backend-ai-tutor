@@ -1,7 +1,9 @@
 import type { Request, Response } from 'express';
 import { Timestamp } from 'firebase-admin/firestore';
+import { env } from '../config/env';
 import { getFirestore } from '../config/firebase';
 import { userConverter } from '../config/firestore-converters';
+import { User } from '../models/users.model';
 import { normalizeUserRole } from '../types/user-role';
 import { asyncHandler } from '../utils/asyncHandler';
 import { sendSuccess } from '../utils/ApiResponse';
@@ -116,14 +118,50 @@ export const getAdminSettings = asyncHandler(async (req: Request, res: Response)
   assertAdmin(req);
 
   const db = getFirestore();
-  const userDoc = await db.collection('users').withConverter(userConverter).doc(req.user!.userId!).get();
-  if (!userDoc.exists || normalizeUserRole(userDoc.data()!.role) !== 'admin') {
-    throw new AppError('Admin account not found', 404);
+  let userDoc: FirebaseFirestore.DocumentSnapshot<User> | null = null;
+  try {
+    userDoc = await db.collection('users').withConverter(userConverter).doc(req.user!.userId!).get();
+  } catch {
+    // If Firestore is quota-limited, userDoc is null
   }
 
-  const settingsDoc = await db.collection('admin_settings').doc(req.user!.userId!).get();
-  sendSuccess(res, buildSettingsPayload(userDoc.data()!, settingsDoc.exists ? settingsDoc.data() as AdminSettingsDocument : null), 'Admin settings loaded');
+  let adminUserData: User;
+  if (!userDoc || !userDoc.exists) {
+    if (
+      req.user!.userId === 'local-admin' ||
+      req.user!.userId === 'seed-admin' ||
+      normalizeUserRole(req.user!.role ?? 'student') === 'admin'
+    ) {
+      adminUserData = {
+        user_id: req.user!.userId!,
+        firebase_uid: req.user!.uid,
+        email: req.user!.email ?? (env.seedAdmin.email || 'admin@rean.ai'),
+        full_name: req.user!.userId === 'seed-admin' ? env.seedAdmin.fullName || 'Administrator' : 'Administrator',
+        role: 'admin',
+        profile_image_url: null,
+        account_status: 'active',
+        preferred_language: 'en',
+        created_at: Timestamp.now(),
+      };
+    } else {
+      throw new AppError('Admin account not found', 404);
+    }
+  } else {
+    adminUserData = userDoc.data()!;
+    if (normalizeUserRole(adminUserData.role) !== 'admin') {
+      throw new AppError('Admin account not found', 404);
+    }
+  }
+
+  let settingsDoc: any = { exists: false, data: () => null };
+  try {
+    settingsDoc = await db.collection('admin_settings').doc(req.user!.userId!).get();
+  } catch {
+    // If Firestore is quota-limited, use default settings
+  }
+  sendSuccess(res, buildSettingsPayload(adminUserData, settingsDoc.exists ? settingsDoc.data() as AdminSettingsDocument : null), 'Admin settings loaded');
 });
+
 
 export const updateAdminSettings = asyncHandler(async (req: Request, res: Response) => {
   assertAdmin(req);
@@ -131,8 +169,31 @@ export const updateAdminSettings = asyncHandler(async (req: Request, res: Respon
   const db = getFirestore();
   const userRef = db.collection('users').withConverter(userConverter).doc(req.user!.userId!);
   const userDoc = await userRef.get();
-  if (!userDoc.exists || normalizeUserRole(userDoc.data()!.role) !== 'admin') {
-    throw new AppError('Admin account not found', 404);
+  let currentUser: User;
+  if (!userDoc.exists) {
+    if (
+      req.user!.userId === 'local-admin' ||
+      (!env.isProductionLike && normalizeUserRole(req.user!.role ?? 'student') === 'admin')
+    ) {
+      currentUser = {
+        user_id: req.user!.userId!,
+        firebase_uid: req.user!.uid,
+        email: req.user!.email ?? 'admin@rean.ai',
+        full_name: 'Administrator',
+        role: 'admin',
+        profile_image_url: null,
+        account_status: 'active',
+        preferred_language: 'en',
+        created_at: Timestamp.now(),
+      };
+    } else {
+      throw new AppError('Admin account not found', 404);
+    }
+  } else {
+    currentUser = userDoc.data()!;
+    if (normalizeUserRole(currentUser.role) !== 'admin') {
+      throw new AppError('Admin account not found', 404);
+    }
   }
 
   const profile = req.body?.profile && typeof req.body.profile === 'object' ? req.body.profile : {};
@@ -140,15 +201,16 @@ export const updateAdminSettings = asyncHandler(async (req: Request, res: Respon
   const settings = req.body?.settings && typeof req.body.settings === 'object' ? req.body.settings : {};
   const currentSettingsDoc = await db.collection('admin_settings').doc(req.user!.userId!).get();
   const currentSettings = currentSettingsDoc.exists ? currentSettingsDoc.data() as Partial<AdminSettingsDocument> : null;
-  const currentUser = userDoc.data()!;
 
   const image = readNullableString(profile.profile_image_url);
-  await userRef.update({
-    full_name: readString(profile.full_name, currentUser.full_name),
-    email: readString(profile.email, currentUser.email),
-    profile_image_url: image === undefined ? currentUser.profile_image_url : image,
-    preferred_language: readNullableString(profile.preferred_language) ?? currentUser.preferred_language,
-  });
+  if (userDoc.exists) {
+    await userRef.update({
+      full_name: readString(profile.full_name, currentUser.full_name),
+      email: readString(profile.email, currentUser.email),
+      profile_image_url: image === undefined ? currentUser.profile_image_url : image,
+      preferred_language: readNullableString(profile.preferred_language) ?? currentUser.preferred_language,
+    });
+  }
 
   const nextSettings: AdminSettingsDocument = {
     user_id: req.user!.userId!,

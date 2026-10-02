@@ -26,13 +26,13 @@ export const createTutorSessionRequestSchema = z
 
 export const tutorSessionParamsSchema = z
   .object({
-    sessionId: z.string().min(1),
+    sessionId: z.string().trim().min(1),
   })
   .strict();
 
 export const tutorUserSessionsParamsSchema = z
   .object({
-    userId: z.string().min(1),
+    userId: z.string().trim().min(1),
   })
   .strict();
 
@@ -44,6 +44,9 @@ export const tutorTelemetryRequestSchema = z
         z
           .object({
             kind: z.string().min(1).max(48),
+            lifecycle: z.string().min(1).max(48).optional(),
+            metric: z.string().min(1).max(48).optional(),
+            duration_ms: z.number().int().min(0).max(600000).optional(),
             outcome: z.string().min(1).max(48).optional(),
             count: z.number().int().min(0).max(100000).optional(),
           })

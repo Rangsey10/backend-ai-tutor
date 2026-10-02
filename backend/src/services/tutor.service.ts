@@ -177,11 +177,64 @@ function internalTutorHeaders(userId: string, requestId?: string): Record<string
   };
 }
 
+/**
+ * Whether a typed message is a question about the solution on the board
+ * rather than a new problem to solve.
+ *
+ * This is deliberately narrow. A generic "what is ...?" is far more often a
+ * new question than a question about the working, so only explicit markers
+ * count: naming a step, or opening with a word that asks about something that
+ * already happened. Being wrong in this direction leaves the previous
+ * behaviour intact; being wrong the other way strands the student on a board
+ * that will not explain itself.
+ */
+function asksAboutTheWork(message: unknown): boolean {
+  const text = String(message ?? '').trim().toLowerCase();
+  if (!text) return false;
+
+  // Khmer is written without spaces between words, so these are plain
+  // substring tests. A word boundary would never match.
+  const khmer = ['ពន្យល់', 'ហេតុអ្វី', 'ជំហាន', 'មិនយល់', 'ម្តងទៀត'];
+  if (khmer.some((term) => text.includes(term))) return true;
+
+  // Naming a step is unambiguous: a new problem does not mention one.
+  if (/\bsteps?\b/.test(text)) return true;
+
+  const openers = [
+    'why', 'explain', 'how did', 'how do you', 'how does', 'what do you mean',
+    'i do not understand', "i don't understand", 'i dont understand',
+    'can you explain', 'could you explain', 'tell me more', 'more detail',
+    'say that again', 'show me again',
+  ];
+  if (openers.some((opener) => text.startsWith(opener) || text.includes(opener))) {
+    return true;
+  }
+  return false;
+}
+
 function aiServiceAction(payload: TutorTurnRequestInput): string {
   const action = payload.action;
   if (action === 'student_message') {
     const currentState = objectValue(payload.current_state);
-    return currentState?.problem_text ? 'submit_step' : 'submit_problem';
+    if (!currentState?.problem_text) return 'submit_problem';
+    // A typed message while a problem is unsolved is the student working, and it
+    // has to stay a step: a correct step of "3x + 4 = 19" is "3x = 15", which
+    // reads as a new equation but is not one.
+    //
+    // Once the answer is on the board there is no step left to answer, so the
+    // student is moving on. Treating that as a step meant someone who typed a
+    // whole new problem had it graded against the problem they had just
+    // finished -- the board kept showing the old solution, with nothing on
+    // screen to say why.
+    // ...unless the student is asking about the working that is already on
+    // the board. The AI service answers those as submit_step against the
+    // problem in state, which is what produces "About Step 4 - Cancel the
+    // common factor"; forwarding them as submit_problem made the tutor try to
+    // solve the question itself, so "explain step 2" just re-ran the solver.
+    if (currentState.final_answer_revealed === true && !asksAboutTheWork(payload.message)) {
+      return 'submit_problem';
+    }
+    return 'submit_step';
   }
   const aliases: Record<string, string> = {
     stuck: 'request_stuck_help',
@@ -225,86 +278,6 @@ export type TutorProxyLogContext = {
     | 'send_turn'
     | 'client_telemetry';
 };
-
-export type TutorImageScanResult = {
-  detected_text: string;
-  confidence: number;
-  language: string;
-  math_expression_candidates?: string[];
-};
-
-const MAX_TUTOR_IMAGE_BYTES = 8 * 1024 * 1024;
-const MAX_TUTOR_IMAGE_PIXELS = 12_000_000;
-const MIN_TUTOR_IMAGE_DIMENSION = 160;
-
-type ImageDimensions = { width: number; height: number };
-
-/**
- * Reads dimensions from the small, fixed-size headers of the image formats we
- * accept.  This deliberately avoids writing an untrusted upload to disk or
- * adding a native image-processing dependency to the API gateway.
- */
-function readImageDimensions(image: Buffer, contentType: string): ImageDimensions | null {
-  if (contentType === 'image/png') {
-    if (image.length < 24 || image.toString('ascii', 1, 4) !== 'PNG') return null;
-    return { width: image.readUInt32BE(16), height: image.readUInt32BE(20) };
-  }
-
-  if (contentType === 'image/jpeg') {
-    if (image.length < 4 || image[0] !== 0xff || image[1] !== 0xd8) return null;
-    let offset = 2;
-    while (offset + 9 < image.length) {
-      if (image[offset] !== 0xff) return null;
-      const marker = image[offset + 1];
-      offset += 2;
-      if (marker === 0xd8 || marker === 0xd9) continue;
-      if (offset + 2 > image.length) return null;
-      const length = image.readUInt16BE(offset);
-      if (length < 2 || offset + length > image.length) return null;
-      // Start-of-frame markers which contain height and width.
-      if ((marker >= 0xc0 && marker <= 0xc3) || (marker >= 0xc5 && marker <= 0xc7) ||
-          (marker >= 0xc9 && marker <= 0xcb) || (marker >= 0xcd && marker <= 0xcf)) {
-        return { width: image.readUInt16BE(offset + 5), height: image.readUInt16BE(offset + 3) };
-      }
-      offset += length;
-    }
-    return null;
-  }
-
-  if (contentType === 'image/webp') {
-    if (image.length < 30 || image.toString('ascii', 0, 4) !== 'RIFF' || image.toString('ascii', 8, 12) !== 'WEBP') return null;
-    const kind = image.toString('ascii', 12, 16);
-    if (kind === 'VP8X') {
-      return { width: 1 + image.readUIntLE(24, 3), height: 1 + image.readUIntLE(27, 3) };
-    }
-    if (kind === 'VP8 ') {
-      if (image.length < 30 || image[23] !== 0x9d || image[24] !== 0x01 || image[25] !== 0x2a) return null;
-      return { width: image.readUInt16LE(26) & 0x3fff, height: image.readUInt16LE(28) & 0x3fff };
-    }
-    if (kind === 'VP8L') {
-      if (image.length < 25 || image[20] !== 0x2f) return null;
-      const bits = image.readUInt32LE(21);
-      return { width: (bits & 0x3fff) + 1, height: ((bits >> 14) & 0x3fff) + 1 };
-    }
-  }
-  return null;
-}
-
-export function validateTutorImageUpload(image: Buffer, contentType: string): void {
-  if (!['image/jpeg', 'image/png', 'image/webp'].includes(contentType)) {
-    throw new AppError('Use a JPG, PNG, or WEBP image', 415, true, 'UNSUPPORTED_IMAGE_TYPE');
-  }
-  if (image.length === 0 || image.length > MAX_TUTOR_IMAGE_BYTES) {
-    throw new AppError('Image must be between 1 byte and 8 MB', 413, true, 'INVALID_IMAGE_SIZE');
-  }
-  const dimensions = readImageDimensions(image, contentType);
-  if (!dimensions || dimensions.width < MIN_TUTOR_IMAGE_DIMENSION || dimensions.height < MIN_TUTOR_IMAGE_DIMENSION) {
-    throw new AppError('Image is too small or is not a readable supported image', 422, true, 'INVALID_IMAGE_DIMENSIONS');
-  }
-  if (dimensions.width * dimensions.height > MAX_TUTOR_IMAGE_PIXELS) {
-    throw new AppError('Image dimensions are too large', 413, true, 'INVALID_IMAGE_DIMENSIONS');
-  }
-}
 
 export async function transcribeTutorVoice(userId: string, audio: Buffer): Promise<string> {
   validateTutorAudioUpload(audio, 'audio/wav');
@@ -623,83 +596,6 @@ export async function streamTutorTurn(
     );
   }
   return response;
-}
-
-export async function scanTutorImage(
-  userId: string,
-  image: Buffer,
-  contentType: string,
-  filename: string,
-  context?: Omit<TutorProxyLogContext, 'userId' | 'operation'>
-): Promise<TutorImageScanResult> {
-  logger.info('Visual Tutor image scan started', {
-    request_id: context?.requestId,
-    user_id: userId,
-    operation: 'scan_problem',
-    bytes: image.length,
-    content_type: contentType,
-  });
-  validateTutorImageUpload(image, contentType);
-  const url = new URL('/api/v1/visual_tutor/scan', env.aiService.baseUrl);
-  let response: Response;
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 30_000);
-  try {
-    response = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'content-type': contentType,
-        'x-upload-filename': filename,
-        ...internalTutorHeaders(userId),
-      },
-      body: image,
-      signal: controller.signal,
-    });
-  } catch (error) {
-    throw new AppError(
-      error instanceof Error && error.name === 'AbortError'
-        ? 'Image reading timed out. Please try again.'
-        : 'Image reading service is unavailable',
-      error instanceof Error && error.name === 'AbortError' ? 504 : 502,
-      true,
-      error instanceof Error && error.name === 'AbortError'
-        ? 'OCR_TIMEOUT'
-        : 'AI_SERVICE_UNAVAILABLE',
-      error instanceof Error ? error.message : undefined
-    );
-  } finally {
-    clearTimeout(timeout);
-  }
-  const payload = await parseJsonResponse(response);
-  if (!response.ok) {
-    const message = objectValue(payload)?.detail;
-    const code = response.status === 502 || response.status === 503
-      ? 'AI_SERVICE_UNAVAILABLE'
-      : response.status === 422
-      ? 'OCR_EMPTY_RESULT'
-      : response.status === 504
-      ? 'OCR_TIMEOUT'
-      : 'IMAGE_SCAN_FAILED';
-    throw new AppError(typeof message === 'string' ? message : 'We could not read this image', response.status, true, code, payload);
-  }
-  const result = objectValue(payload);
-  const detectedText = result?.detected_text;
-  if (typeof detectedText !== 'string' || !detectedText.trim()) {
-    throw new AppError(
-      'We could not read a question from this image',
-      422,
-      true,
-      'OCR_EMPTY_RESULT'
-    );
-  }
-  return {
-    detected_text: detectedText.trim(),
-    confidence: typeof result?.confidence === 'number' ? result.confidence : 0,
-    language: typeof result?.language === 'string' ? result.language : 'unknown',
-    math_expression_candidates: Array.isArray(result?.math_expression_candidates)
-      ? result.math_expression_candidates.filter((value): value is string => typeof value === 'string')
-      : [],
-  };
 }
 
 export function responseBelongsToUser(payload: unknown, userId: string): boolean | null {

@@ -1,6 +1,6 @@
 import type { Request, Response } from 'express';
 import { listGrades, listSubjects, listTopics } from '../services/catalog.service';
-import { listStudentPublishedLessons } from '../services/published-lesson-catalog.service';
+import { listStudentPublishedLessons, getLessonDetailedContent } from '../services/published-lesson-catalog.service';
 import type { ListTopicsQueryInput } from '../schemas/catalog-request.schema';
 import type { ListPublishedLessonsQuery } from '../schemas/published-lesson-catalog.schema';
 import { asyncHandler } from '../utils/asyncHandler';
@@ -25,4 +25,10 @@ export const getTopics = asyncHandler(async (req: Request, res: Response) => {
 export const getPublishedLessons = asyncHandler(async (req: Request, res: Response) => {
   const lessons = await listStudentPublishedLessons(req.query as ListPublishedLessonsQuery);
   sendSuccess(res, { lessons }, 'Published lessons retrieved successfully');
+});
+
+export const getLessonContent = asyncHandler(async (req: Request, res: Response) => {
+  const lessonId = req.params.lessonId;
+  const content = await getLessonDetailedContent(lessonId);
+  sendSuccess(res, content, 'Lesson detailed content retrieved successfully');
 });

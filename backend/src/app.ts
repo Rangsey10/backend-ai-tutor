@@ -6,6 +6,17 @@ import { correlationId, requestLogger } from './middlewares/requestLogger';
 import { errorHandler, notFoundHandler } from './middlewares/errorHandler';
 import { env } from './config/env';
 
+export function isOriginAllowed(origin: string | undefined): boolean {
+  if (!origin) return true;
+  const clean = origin.trim().replace(/\/+$/, '').toLowerCase();
+  for (const allowed of env.cors.allowedOrigins) {
+    const cleanAllowed = allowed.trim().replace(/\/+$/, '').toLowerCase();
+    if (clean === cleanAllowed) return true;
+    if (clean.replace(/^https?:\/\//, '') === cleanAllowed.replace(/^https?:\/\//, '')) return true;
+  }
+  return false;
+}
+
 export function createApp(): Application {
   const app = express();
 
@@ -17,7 +28,7 @@ export function createApp(): Application {
         // Non-browser callers (mobile apps, server-to-server probes) do not
         // send Origin and still authenticate normally. Browser origins must be
         // explicitly supplied through CORS_ALLOWED_ORIGINS.
-        if (!origin || env.cors.allowedOrigins.includes(origin)) {
+        if (isOriginAllowed(origin)) {
           callback(null, true);
           return;
         }

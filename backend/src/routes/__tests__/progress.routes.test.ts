@@ -30,9 +30,10 @@ jest.mock('../../services/progress.service', () => ({
 const mockedProgressService = progressService as jest.Mocked<typeof progressService>;
 
 describe('progress routes', () => {
-  const app = createApp();
+  let app: ReturnType<typeof createApp>;
 
   beforeEach(() => {
+    app = createApp();
     jest.clearAllMocks();
   });
 

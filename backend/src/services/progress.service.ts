@@ -164,10 +164,9 @@ async function persistProgressEvent(event: StoredProgressEvent): Promise<void> {
       firestore_message:
         typeof firestoreError.message === 'string' ? firestoreError.message : 'Unknown Firestore error',
     });
-    if (!env.firebase.allowLocalFallback || env.isProductionLike) {
-      throw new Error('Firestore progress persistence is unavailable');
-    }
-    // Local demo mode intentionally keeps an in-memory event copy when Firestore is unavailable.
+    // An in-memory event copy is already stored in localEvents.
+    // If Firestore persistence fails (e.g. daily quota reached or temporary disruption),
+    // log the warning and do not crash the student's learning session.
   }
 }
 
@@ -307,10 +306,11 @@ async function readProgressEvents(userId: string): Promise<{
       };
     });
     return { events, persistence: { mode: 'firestore', durable: true } };
-  } catch {
-    if (!env.firebase.allowLocalFallback || env.isProductionLike) {
-      throw new Error('Firestore progress read is unavailable');
-    }
+  } catch (error) {
+    logger.warn('Firestore progress read is unavailable, falling back to local/empty progress', {
+      userId,
+      error: error instanceof Error ? error.message : String(error),
+    });
     return {
       events: eventsForUser(userId),
       persistence: { mode: 'local_memory', durable: false },
@@ -320,8 +320,13 @@ async function readProgressEvents(userId: string): Promise<{
 
 function buildRecentActivity(events: StoredProgressEvent[], limit = 10): RecentActivityItem[] {
   return events
-    .slice()
-    .sort((left, right) => right.created_at.localeCompare(left.created_at))
+    .map((event, index) => ({ event, index }))
+    .sort((left, right) => {
+      const timeDiff = right.event.created_at.localeCompare(left.event.created_at);
+      if (timeDiff !== 0) return timeDiff;
+      return right.index - left.index;
+    })
+    .map(({ event }) => event)
     .slice(0, limit)
     .map((event) => ({
       id: event.id,

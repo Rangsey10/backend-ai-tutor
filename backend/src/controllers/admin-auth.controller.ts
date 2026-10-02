@@ -10,6 +10,7 @@ import {
 import { env } from '../config/env';
 import { getFirestore, isFirebaseInitialized } from '../config/firebase';
 import { userConverter } from '../config/firestore-converters';
+import type { User } from '../models/users.model';
 import { normalizeUserRole } from '../types/user-role';
 import { asyncHandler } from '../utils/asyncHandler';
 import { sendCreated, sendNoContent, sendSuccess } from '../utils/ApiResponse';
@@ -49,35 +50,37 @@ async function recordAdminAuthAudit(req: Request, action: string, actorId?: stri
   }
 }
 
-const localRefreshTokens = new Set<string>();
+const localRefreshTokens = new Map<string, { email: string; name: string; userId: string }>();
 const localPasswordResetTokens = new Set<string>();
 let localAdminEmail = env.devAdmin.email;
 let localAdminFullName = env.devAdmin.fullName;
 let localAdminPassword = env.devAdmin.password;
 
 function shouldUseLocalAdminAuth(): boolean {
-  return !isFirebaseInitialized() && env.firebase.allowLocalFallback && !env.isProductionLike;
+  return (!isFirebaseInitialized() || env.firebase.allowLocalFallback) && !env.isProductionLike;
 }
 
-function buildLocalAdminAuthResponse() {
+function buildLocalAdminAuthResponse(customEmail?: string, customName?: string, customUserId = 'local-admin') {
+  const adminEmail = customEmail ?? localAdminEmail;
+  const adminName = customName ?? localAdminFullName;
   const refreshToken = generateOpaqueToken();
-  localRefreshTokens.add(refreshToken);
+  localRefreshTokens.set(refreshToken, { email: adminEmail, name: adminName, userId: customUserId });
 
   return {
     user: {
-      user_id: 'local-admin',
-      firebase_uid: 'local:admin',
-      email: localAdminEmail,
-      full_name: localAdminFullName,
+      user_id: customUserId,
+      firebase_uid: `local:${customUserId}`,
+      email: adminEmail,
+      full_name: adminName,
       role: 'admin' as const,
       profile_image_url: null,
       preferred_language: null,
     },
     tokens: {
       access_token: signAccessToken({
-        sub: 'local-admin',
+        sub: customUserId,
         role: 'admin',
-        email: localAdminEmail,
+        email: adminEmail,
       }),
       refresh_token: refreshToken,
       expires_in_seconds: env.auth.accessTokenTtlMinutes * 60,
@@ -93,37 +96,80 @@ function extractClientMetadata(req: Request): { ipAddress?: string; userAgent?: 
 }
 
 export const loginAdmin = asyncHandler(async (req: Request, res: Response) => {
-  if (shouldUseLocalAdminAuth()) {
-    const email = String(req.body.email ?? '').trim().toLowerCase();
-    const password = String(req.body.password ?? '');
+  const email = String(req.body.email ?? '').trim().toLowerCase();
+  const password = String(req.body.password ?? '');
 
-    if (email !== localAdminEmail.toLowerCase() || password !== localAdminPassword) {
-      throw new AppError('Invalid email or password', 401);
-    }
-
-    const response = buildLocalAdminAuthResponse(); setAdminCookies(res, response); await recordAdminAuthAudit(req, 'admin_auth.login', response.user.user_id); sendSuccess(res, publicAuthResponse(response), 'Admin login successful');
+  const isSeedAdmin = Boolean(
+    env.seedAdmin.email &&
+    env.seedAdmin.password &&
+    email === env.seedAdmin.email.toLowerCase() &&
+    password === env.seedAdmin.password
+  );
+  if (isSeedAdmin) {
+    const response = buildLocalAdminAuthResponse(env.seedAdmin.email, env.seedAdmin.fullName, 'seed-admin');
+    setAdminCookies(res, response);
+    await recordAdminAuthAudit(req, 'admin_auth.seed_login', response.user.user_id);
+    sendSuccess(res, publicAuthResponse(response), 'Admin login successful');
     return;
   }
 
-  const { ipAddress, userAgent } = extractClientMetadata(req);
-  const data = await loginUser(req.body, ipAddress, userAgent);
-
-  if (normalizeUserRole(data.user.role) !== 'admin') {
-    await logoutWithRefreshToken(data.tokens.refresh_token);
-    throw new AppError('Admin access is required', 403);
+  if (shouldUseLocalAdminAuth()) {
+    const isDefaultAdmin = email === env.devAdmin.email.toLowerCase() && password === env.devAdmin.password;
+    const isLocalAdmin = email === localAdminEmail.toLowerCase() && password === localAdminPassword;
+    if (isDefaultAdmin || isLocalAdmin) {
+      if (isDefaultAdmin) {
+        localAdminEmail = env.devAdmin.email;
+        localAdminFullName = env.devAdmin.fullName;
+      }
+      const response = buildLocalAdminAuthResponse();
+      setAdminCookies(res, response);
+      await recordAdminAuthAudit(req, 'admin_auth.login', response.user.user_id);
+      sendSuccess(res, publicAuthResponse(response), 'Admin login successful');
+      return;
+    }
   }
 
-  setAdminCookies(res, data); await recordAdminAuthAudit(req, 'admin_auth.login', data.user.user_id); sendSuccess(res, { user: data.user, expires_in_seconds: data.tokens.expires_in_seconds }, 'Admin login successful');
+  if (isFirebaseInitialized()) {
+    try {
+      const { ipAddress, userAgent } = extractClientMetadata(req);
+      const data = await loginUser(req.body, ipAddress, userAgent);
+
+      if (normalizeUserRole(data.user.role) !== 'admin') {
+        await logoutWithRefreshToken(data.tokens.refresh_token);
+        throw new AppError('Admin access is required', 403);
+      }
+
+      setAdminCookies(res, data);
+      await recordAdminAuthAudit(req, 'admin_auth.login', data.user.user_id);
+      sendSuccess(res, { user: data.user, expires_in_seconds: data.tokens.expires_in_seconds }, 'Admin login successful');
+      return;
+    } catch (error) {
+      if (error instanceof AppError && error.statusCode === 403) {
+        throw error;
+      }
+      const isQuotaExhausted =
+        error instanceof Error &&
+        (error.message.includes('RESOURCE_EXHAUSTED') || error.message.includes('Quota exceeded'));
+      if (isQuotaExhausted) {
+        throw new AppError('Database service quota temporarily exceeded. Please try again later.', 503);
+      }
+    }
+  }
+
+  throw new AppError('Invalid email or password', 401);
 });
 
+
 export const loginAdminWithGoogle = asyncHandler(async (req: Request, res: Response) => {
-  if (shouldUseLocalAdminAuth()) {
+  if (!isFirebaseInitialized()) {
     throw new AppError('Configure Firebase credentials before using Google sign-in', 503);
   }
 
   const { ipAddress, userAgent } = extractClientMetadata(req);
   const data = await loginAdminWithFirebaseIdToken(req.body.id_token, ipAddress, userAgent);
-  setAdminCookies(res, data); await recordAdminAuthAudit(req, 'admin_auth.google_login', data.user.user_id); sendSuccess(res, { user: data.user, expires_in_seconds: data.tokens.expires_in_seconds }, 'Admin Google login successful');
+  setAdminCookies(res, data);
+  await recordAdminAuthAudit(req, 'admin_auth.google_login', data.user.user_id);
+  sendSuccess(res, { user: data.user, expires_in_seconds: data.tokens.expires_in_seconds }, 'Admin Google login successful');
 });
 
 export const registerAdmin = asyncHandler(async (req: Request, res: Response) => {
@@ -144,32 +190,58 @@ export const registerAdmin = asyncHandler(async (req: Request, res: Response) =>
 
 export const logoutAdmin = asyncHandler(async (req: Request, res: Response) => {
   const refreshToken = readCookie(req, REFRESH_COOKIE) ?? req.body.refresh_token;
-  if (shouldUseLocalAdminAuth()) {
+  if (refreshToken && localRefreshTokens.has(refreshToken)) {
     localRefreshTokens.delete(refreshToken);
-    res.clearCookie(ACCESS_COOKIE, { path: '/' }); res.clearCookie(REFRESH_COOKIE, { path: '/' }); res.clearCookie(CSRF_COOKIE, { path: '/' });
-    await recordAdminAuthAudit(req, 'admin_auth.logout', 'local-admin'); sendNoContent(res);
+    res.clearCookie(ACCESS_COOKIE, { path: '/' });
+    res.clearCookie(REFRESH_COOKIE, { path: '/' });
+    res.clearCookie(CSRF_COOKIE, { path: '/' });
+    await recordAdminAuthAudit(req, 'admin_auth.logout', req.user?.userId ?? 'admin');
+    sendNoContent(res);
+    return;
+  }
+  if (!isFirebaseInitialized()) {
+    res.clearCookie(ACCESS_COOKIE, { path: '/' });
+    res.clearCookie(REFRESH_COOKIE, { path: '/' });
+    res.clearCookie(CSRF_COOKIE, { path: '/' });
+    await recordAdminAuthAudit(req, 'admin_auth.logout', 'local-admin');
+    sendNoContent(res);
     return;
   }
 
-  await logoutWithRefreshToken(refreshToken);
+  if (refreshToken) {
+    try {
+      await logoutWithRefreshToken(refreshToken);
+    } catch {
+      // Ignore token revocation failure if Firestore quota is exhausted
+    }
+  }
   await recordAdminAuthAudit(req, 'admin_auth.logout');
-  res.clearCookie(ACCESS_COOKIE, { path: '/' }); res.clearCookie(REFRESH_COOKIE, { path: '/' }); res.clearCookie(CSRF_COOKIE, { path: '/' });
+  res.clearCookie(ACCESS_COOKIE, { path: '/' });
+  res.clearCookie(REFRESH_COOKIE, { path: '/' });
+  res.clearCookie(CSRF_COOKIE, { path: '/' });
   sendNoContent(res);
 });
 
 export const refreshAdminSession = asyncHandler(async (req: Request, res: Response) => {
   const refreshToken = readCookie(req, REFRESH_COOKIE);
   if (!refreshToken) throw new AppError('Admin refresh session not found', 401);
-  if (shouldUseLocalAdminAuth()) {
-    if (!localRefreshTokens.delete(refreshToken)) throw new AppError('Admin refresh session is expired', 401);
-    const data = buildLocalAdminAuthResponse();
+  const localSession = localRefreshTokens.get(refreshToken);
+  if (localSession) {
+    localRefreshTokens.delete(refreshToken);
+    const data = buildLocalAdminAuthResponse(localSession.email, localSession.name, localSession.userId);
     setAdminCookies(res, data);
-    await recordAdminAuthAudit(req, 'admin_auth.refresh', data.user.user_id); sendSuccess(res, publicAuthResponse(data), 'Admin session refreshed');
+    await recordAdminAuthAudit(req, 'admin_auth.refresh', data.user.user_id);
+    sendSuccess(res, publicAuthResponse(data), 'Admin session refreshed');
     return;
+  }
+  if (!isFirebaseInitialized()) {
+    throw new AppError('Admin refresh session is expired', 401);
   }
   const data = await rotateRefreshToken(refreshToken, req.ip, req.header('user-agent'));
   if (normalizeUserRole(data.user.role) !== 'admin') throw new AppError('Admin access is required', 403);
-  setAdminCookies(res, data); await recordAdminAuthAudit(req, 'admin_auth.refresh', data.user.user_id); sendSuccess(res, { user: data.user, expires_in_seconds: data.tokens.expires_in_seconds }, 'Admin session refreshed');
+  setAdminCookies(res, data);
+  await recordAdminAuthAudit(req, 'admin_auth.refresh', data.user.user_id);
+  sendSuccess(res, { user: data.user, expires_in_seconds: data.tokens.expires_in_seconds }, 'Admin session refreshed');
 });
 
 export const requestAdminPasswordReset = asyncHandler(async (req: Request, res: Response) => {
@@ -213,10 +285,26 @@ export const getAdminSession = asyncHandler(async (req: Request, res: Response) 
     throw new AppError('Admin access is required', 403);
   }
 
-  const userDocument = req.user.userId
-    ? await getFirestore().collection('users').withConverter(userConverter).doc(req.user.userId).get()
-    : null;
-  const user = userDocument?.exists ? userDocument.data() : null;
+  let user: User | null = null;
+  if (req.user.userId && isFirebaseInitialized()) {
+    try {
+      const userDocument = await getFirestore()
+        .collection('users')
+        .withConverter(userConverter)
+        .doc(req.user.userId)
+        .get();
+      user = userDocument.exists ? (userDocument.data() ?? null) : null;
+    } catch {
+      // Graceful fallback when Firestore is quota-limited
+    }
+  }
+
+  const defaultFullName =
+    req.user.userId === 'seed-admin'
+      ? env.seedAdmin.fullName || 'Administrator'
+      : req.user.userId === 'local-admin'
+        ? localAdminFullName
+        : 'Administrator';
 
   sendSuccess(
     res,
@@ -225,7 +313,7 @@ export const getAdminSession = asyncHandler(async (req: Request, res: Response) 
         user_id: user?.user_id ?? req.user.userId,
         firebase_uid: user?.firebase_uid ?? req.user.uid,
         email: user?.email ?? req.user.email,
-        full_name: user?.full_name,
+        full_name: user?.full_name ?? defaultFullName,
         role: user?.role ?? req.user.role,
         profile_image_url: user?.profile_image_url ?? null,
         preferred_language: user?.preferred_language ?? null,
@@ -234,3 +322,4 @@ export const getAdminSession = asyncHandler(async (req: Request, res: Response) 
     'Admin session active'
   );
 });
+

@@ -1,5 +1,18 @@
 import { Timestamp } from 'firebase-admin/firestore';
 
+/**
+ * How a free-text maths answer was judged.
+ *
+ * `source` records who decided: the SymPy verifier, or the string fallback used
+ * when the verifier could not answer. `needs_review` marks a grade the fallback
+ * could not prove, so a reviewer can catch a student marked wrong unfairly.
+ */
+export interface QuizAnswerVerification {
+  source: 'verifier' | 'fallback_exact_match' | 'option_match';
+  status: 'equivalent' | 'different' | 'cannot_verify' | 'not_applicable';
+  needs_review: boolean;
+}
+
 export interface QuizAnswer {
   quiz_answer_id: string;
   quiz_attempt_id: string;
@@ -10,6 +23,8 @@ export interface QuizAnswer {
   is_partially_correct: boolean;
   score_awarded: number;
   feedback: string | null;
+  /** Absent on answers graded before verification was recorded. */
+  verification?: QuizAnswerVerification;
   created_at: Timestamp;
 }
 

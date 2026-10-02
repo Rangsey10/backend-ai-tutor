@@ -11,10 +11,11 @@ jest.mock('../../config/firebase', () => ({
 const mockedIsFirebaseInitialized = isFirebaseInitialized as jest.MockedFunction<
   typeof isFirebaseInitialized
 >;
-const app = createApp();
+let app: ReturnType<typeof createApp>;
 
 describe('backend production readiness', () => {
   beforeEach(() => {
+    app = createApp();
     jest.restoreAllMocks();
     mockedIsFirebaseInitialized.mockReturnValue(true);
   });
@@ -48,6 +49,22 @@ describe('backend production readiness', () => {
     expect(response.body.dependencies).toEqual({
       firebase: 'healthy',
       visual_tutor_ai: 'degraded',
+    });
+  });
+
+  it('returns 503 without authentication when required dependencies are unavailable', async () => {
+    mockedIsFirebaseInitialized.mockReturnValue(false);
+    jest.spyOn(global, 'fetch').mockRejectedValue(new Error('AI service unavailable'));
+
+    const response = await request(app).get('/api/v1/health').expect(503);
+
+    expect(response.body).toMatchObject({
+      success: true,
+      status: 'unavailable',
+      dependencies: {
+        firebase: 'unavailable',
+        visual_tutor_ai: 'unavailable',
+      },
     });
   });
 });

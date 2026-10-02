@@ -14,6 +14,7 @@ import adminAiReviewRoutes from './admin-ai-review.routes';
 import tutorSessionRoutes from './tutor-session.routes';
 import progressRoutes from './progress.routes';
 import tutorReportRoutes from './tutor-report.routes';
+import curriculumRoutes from './curriculum.routes';
 
 const router = Router();
 
@@ -21,6 +22,7 @@ router.use('/health', healthRoutes);
 router.use('/auth', authRoutes);
 router.use('/profile', profileRoutes);
 router.use('/catalog', catalogRoutes);
+router.use('/curriculum', curriculumRoutes);
 router.use('/tutor', tutorRoutes);
 router.use('/quizzes', quizRoutes);
 router.use('/admin/auth', adminAuthRoutes);
@@ -30,13 +32,7 @@ router.use('/admin/settings', adminSettingsRoutes);
 router.use('/admin/curriculum', adminCurriculumRoutes);
 router.use('/admin/ai-reviews', adminAiReviewRoutes);
 router.use('/tutor-sessions', tutorSessionRoutes);
-router.use('/tutor-sessions', tutorSessionRoutes);
 router.use('/progress', progressRoutes);
 router.use('/tutor/reports', tutorReportRoutes);
-
-// Future route groups will be mounted here as they're built:
-// router.use('/users', userRoutes);
-// router.use('/curriculum', curriculumRoutes);
-// router.use('/admin', adminRoutes);
 
 export default router;

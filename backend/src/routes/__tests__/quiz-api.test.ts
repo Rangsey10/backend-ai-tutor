@@ -1,6 +1,6 @@
 import request from 'supertest';
 import { createApp } from '../../app';
-import { getAuth } from '../../config/firebase';
+import { getAuth, getFirestore } from '../../config/firebase';
 import {
   createOrRetrieveQuiz,
   getQuizByTopic,
@@ -12,6 +12,7 @@ import { AppError } from '../../utils/AppError';
 
 jest.mock('../../config/firebase', () => ({
   getAuth: jest.fn(),
+  getFirestore: jest.fn(),
 }));
 
 jest.mock('../../services/quiz.service', () => ({
@@ -29,7 +30,31 @@ const mockedSubmitQuizAnswers = submitQuizAnswers as jest.MockedFunction<
   typeof submitQuizAnswers
 >;
 
-const app = createApp();
+let app: ReturnType<typeof createApp>;
+
+function mockUserDocument(uid = 'firebase-uid') {
+  const snapshot = {
+    exists: true,
+    data: () => ({
+      user_id: uid,
+      firebase_uid: uid,
+      full_name: 'Test Student',
+      email: 'student@example.com',
+      role: 'student',
+      account_status: 'active',
+    }),
+  };
+  const doc = jest.fn().mockReturnValue({
+    get: jest.fn().mockResolvedValue(snapshot),
+    set: jest.fn().mockResolvedValue(undefined),
+  });
+  (getFirestore as jest.Mock).mockReturnValue({
+    collection: jest.fn().mockReturnValue({
+      withConverter: jest.fn().mockReturnValue({ doc }),
+      doc,
+    }),
+  } as never);
+}
 
 function mockToken(role = 'student') {
   mockedGetAuth.mockReturnValue({
@@ -84,14 +109,21 @@ const attemptResult: QuizAttemptResult = {
       is_correct: true,
       score_awarded: 1,
       feedback: 'Correct.',
+      verification: {
+        source: 'option_match' as const,
+        status: 'not_applicable' as const,
+        needs_review: false,
+      },
     },
   ],
 };
 
 describe('student quiz API', () => {
   beforeEach(() => {
+    app = createApp();
     jest.clearAllMocks();
     mockToken();
+    mockUserDocument();
     mockedGetQuizByTopic.mockResolvedValue(quizResponse);
     mockedCreateOrRetrieveQuiz.mockResolvedValue(quizResponse);
     mockedSubmitQuizAnswers.mockResolvedValue(attemptResult);
